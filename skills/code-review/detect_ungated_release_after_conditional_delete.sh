@@ -40,19 +40,15 @@
 # Exit: 1 if a candidate is found; 0 if none; 2 on a read error.
 set -uo pipefail
 file="${1:?usage: detect_ungated_release_after_conditional_delete.sh <file> [commit]}"
-commit="${2:-}"
+base="${2:-}"  # base-revision copy from run_detectors.sh (unused here)
 
-if [ -n "$commit" ]; then
-    src="$(git show "${commit}:${file}" 2>/dev/null)"
-else
-    src="$(cat "$file" 2>/dev/null)"
-fi
+src="$(cat "$file" 2>/dev/null)"
 if [ -z "$src" ]; then
-    echo "detect_ungated_release_after_conditional_delete: cannot read $file${commit:+ @ $commit}" >&2
+    echo "detect_ungated_release_after_conditional_delete: cannot read $file" >&2
     exit 2
 fi
 
-label="$file${commit:+ @ $commit}"
+label="$file"
 echo "=== ungated-release-after-conditional-delete detector: $label ==="
 
 out="$(printf '%s\n' "$src" | awk '

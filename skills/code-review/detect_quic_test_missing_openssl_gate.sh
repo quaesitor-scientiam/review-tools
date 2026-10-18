@@ -36,7 +36,7 @@
 
 set -u
 file="${1:?usage: detect_quic_test_missing_openssl_gate.sh <file> [gitrev]}"
-rev="${2:-}"
+base="${2:-}"  # base-revision copy from run_detectors.sh (unused here)
 
 case "$file" in
   vlib/net/quic/*_test.v) ;;
@@ -46,27 +46,19 @@ case "$file" in
     ;;
 esac
 
-repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-skip_list="$repo_root/cmd/tools/vtest-self.v"
+# The skip list is read relative to the CURRENT DIRECTORY: run_detectors.sh
+# cd's to the repo root (or to its --at extraction tree) before calling us.
+skip_list="cmd/tools/vtest-self.v"
 
 get_first_line() {
-  if [ -n "$rev" ]; then
-    git show "${rev}:${file}" 2>/dev/null | head -1
-  else
-    head -1 "$file" 2>/dev/null
-  fi
+  head -1 "$file" 2>/dev/null
 }
 
 get_skip_list() {
-  if [ -n "$rev" ]; then
-    git show "${rev}:cmd/tools/vtest-self.v" 2>/dev/null
-  else
-    cat "$skip_list" 2>/dev/null
-  fi
+  cat "$skip_list" 2>/dev/null
 }
 
 label="$file"
-[ -n "$rev" ] && label="$file @ $rev"
 echo "=== quic openssl-gate detector: $label ==="
 
 first_line="$(get_first_line)"

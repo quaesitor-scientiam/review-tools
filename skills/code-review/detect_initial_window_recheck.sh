@@ -15,14 +15,9 @@
 set -euo pipefail
 
 FILE="${1:-vlib/net/http/h2_mux_conn.v}"
-COMMIT="${2:-}"
+BASE="${2:-}"  # base-revision copy from run_detectors.sh (unused here)
 
-if [[ -n "$COMMIT" ]]; then
-    content=$(git show "${COMMIT}:${FILE}" 2>/dev/null \
-        || { echo "ERROR: cannot read ${COMMIT}:${FILE}"; exit 2; })
-else
-    content=$(cat "$FILE")
-fi
+content=$(cat "$FILE") || { echo "ERROR: cannot read ${FILE}"; exit 2; }
 
 # Strategy: extract the body of send_body_on_stream and check whether
 # s.send_window < 0 (or s.send_window <= -1 or similar) appears inside the

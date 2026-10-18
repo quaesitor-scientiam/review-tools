@@ -15,13 +15,14 @@
 # Canonical miss: H2ServerConn.finalize_headers/finalize_trailers RST'd the stream
 # on a decode failure (Codex P2, vlang/v#27569, discussion_r3485226568). [[code-review-misses]]
 #
-# Usage: bash detect_hpack_decode_scope.sh <file...>   (run in WSL — see memory)
+# Usage: bash detect_hpack_decode_scope.sh <file> [base_copy_or_empty] [file...]   (run in WSL — see memory)
 # Exit 0 = all decode failures are connection-scoped; Exit 1 = a per-stream RST found.
 
 set -uo pipefail
 
 found=0
-for f in "$@"; do
+# $2 is the base-revision copy passed by run_detectors.sh: never a scan target.
+for f in "$1" "${@:3}"; do
     echo "=== hpack-decode-scope: $f ==="
     any=0
     while IFS=: read -r ln _; do

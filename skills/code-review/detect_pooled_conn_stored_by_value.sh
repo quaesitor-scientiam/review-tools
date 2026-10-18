@@ -18,19 +18,15 @@
 
 set -u
 file="${1:?usage: detect_pooled_conn_stored_by_value.sh <file> [commit]}"
-commit="${2:-}"
+base="${2:-}"  # base-revision copy from run_detectors.sh (unused here)
 
 read_source() {
-    if [ -n "$commit" ]; then
-        git show "$commit:$file" 2>/dev/null
-    else
-        cat "$file" 2>/dev/null
-    fi
+    cat "$file" 2>/dev/null
 }
 
 src="$(read_source)"
 if [ -z "$src" ]; then
-    echo "detect_pooled_conn_stored_by_value: could not read $file${commit:+ at $commit}" >&2
+    echo "detect_pooled_conn_stored_by_value: could not read $file" >&2
     exit 2
 fi
 

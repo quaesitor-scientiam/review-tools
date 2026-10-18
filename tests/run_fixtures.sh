@@ -56,6 +56,18 @@ run_case() { # $1=detector-name $2=known_bad|known_good $3=case-dir
         while IFS= read -r line || [ -n "$line" ]; do [ -n "$line" ] && args+=("$line"); done < "$case/args"
     else
         while IFS= read -r f; do args+=("$f"); done < <(cd "$case" && eval find . -type f $control_files | sed 's|^\./||' | sort)
+        # Contract check: run_detectors.sh passes the base-revision copy as $2
+        # and a detector must never scan it. For a known_good case the decoy
+        # is the detector's first known_bad file (absolute path), so a detector
+        # that treats $2 as a target flips to exit 1 and fails the case; for a
+        # known_bad case it is the empty string, the "no base copy" form.
+        if [ "${#args[@]}" -eq 1 ]; then
+            decoy=""
+            if [ "$kind" = known_good ]; then
+                decoy="$(find "$here/$det/known_bad" -type f ! -name args ! -name needs_git ! -name expect_rc ! -name expect_out 2>/dev/null | sort | head -1)"
+            fi
+            args+=("$decoy")
+        fi
     fi
 
     # Working directory: the case dir, or a throwaway git repo built from it.
@@ -142,6 +154,51 @@ if [ "$check_coverage" -eq 1 ]; then
             fail=$((fail+1)); failures+=("$name: unfixtured")
         fi
     done
+fi
+
+# ---- no-git gate: detectors must not call git (the runner owns git) ---------
+if [ "$check_coverage" -eq 1 ]; then
+    for script in "$detdir"/detect_*.sh "$detdir"/detect_*.ps1; do
+        [ -f "$script" ] || continue
+        if grep -qE '^[^#]*\bgit\b' "$script"; then
+            o="$(basename "$script")"
+            echo "  [FAIL] $o: calls git (run_detectors.sh owns all git access)"
+            fail=$((fail+1)); failures+=("$o: calls git")
+        fi
+    done
+fi
+
+# ---- runner smoke test: run_detectors.sh end to end on a throwaway repo -------
+# master holds the known_good lenient-parse fixture, feature the known_bad one.
+# No-arg mode must select the changed file and FLAG it; --at master must scan
+# the old content and pass; a CRLF/backslash-polluted path must be normalised.
+smoke() { # $1=label $2=expected rc $3=regex the output must match, rest=runner args
+    local label="$1" want="$2" re="$3"; shift 3
+    local out rc
+    out="$(cd "$r" && unset GIT_DIR GIT_WORK_TREE && timeout "$timeout_s" bash "$detdir/run_detectors.sh" "$@" 2>&1)"; rc=$?
+    if [ "$rc" -eq "$want" ] && printf '%s\n' "$out" | grep -qE -- "$re"; then
+        pass=$((pass+1)); [ -n "${VERBOSE:-}" ] && echo "  [ OK ] runner-smoke/$label (exit $rc)"
+    else
+        fail=$((fail+1)); failures+=("runner-smoke/$label: exit $rc, expected $want and /$re/")
+        echo "  [FAIL] runner-smoke/$label: exit $rc, expected $want and /$re/"
+        printf '%s\n' "$out" | sed 's/^/         | /' | head -20
+    fi
+}
+if [ "$check_coverage" -eq 1 ]; then
+    r="$work/runner-smoke"; rm -rf "$r"; mkdir -p "$r/vlib/x"
+    if ( cd "$r" && unset GIT_DIR GIT_WORK_TREE \
+         && git init -q -b master . \
+         && cp "$here/detect_lenient_parse/known_good/guarded/parse.v" vlib/x/parse.v \
+         && git add -A && git -c user.name=f -c user.email=f@x -c commit.gpgsign=false commit -q -m base \
+         && git checkout -q -b feature \
+         && cp "$here/detect_lenient_parse/known_bad/unguarded/parse.v" vlib/x/parse.v \
+         && git add -A && git -c user.name=f -c user.email=f@x -c commit.gpgsign=false commit -q -m feature ); then
+        smoke no-arg-flags-changed-file 1 'FLAG\] detect_lenient_parse'
+        smoke at-master-passes 0 '@ master' --at master vlib/x/parse.v
+        smoke normalised-path 1 'target: vlib/x/parse\.v' "vlib\\x\\parse.v"$'\r'
+    else
+        echo "  [FAIL] runner-smoke: could not build repo"; fail=$((fail+1)); failures+=("runner-smoke: repo")
+    fi
 fi
 
 rm -rf "$work"

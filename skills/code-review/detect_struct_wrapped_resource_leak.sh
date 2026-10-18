@@ -81,17 +81,12 @@
 set -u
 file="${1:?usage: detect_struct_wrapped_resource_leak.sh <file> [resource_type_regex] [gitrev]}"
 resource_re="${2:-ecdsa\.(PrivateKey|PublicKey)}"
-rev="${3:-}"
+base="${3:-}"  # base-revision copy from run_detectors.sh (unused here)
 
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
-if [ -n "$rev" ]; then
-  git show "${rev}:${file}" > "$tmp" || { echo "cannot read $file @ $rev"; exit 2; }
-  label="$file @ $rev"
-else
-  cp "$file" "$tmp"
-  label="$file (working tree)"
-fi
+cp "$file" "$tmp" || { echo "cannot read $file"; exit 2; }
+label="$file"
 
 echo "=== struct-wrapped resource leak detector: $label (resource: $resource_re) ==="
 found=0
@@ -143,7 +138,7 @@ while IFS=: read -r field_ln field_rest; do
     scan_files=("$tmp")
     scan_labels=("$file")
     if [ -n "${GRAPHIFY_EXE:-}" ] && [ -n "${GRAPHIFY_GRAPH:-}" ]; then
-      repo_root="${GRAPHIFY_REPO_ROOT:-$(git -C "$(dirname "$file")" rev-parse --show-toplevel 2>/dev/null)}"
+      repo_root="${GRAPHIFY_REPO_ROOT:-$PWD}"
       if [ -n "$repo_root" ] && [ -x "$GRAPHIFY_EXE" -o -f "$GRAPHIFY_EXE" ]; then
         called_by_line="$("$GRAPHIFY_EXE" explain "$func_name" --graph "$GRAPHIFY_GRAPH" 2>/dev/null | grep '^called by')"
         if [ -n "$called_by_line" ]; then

@@ -40,19 +40,15 @@
 #       ssl.SSLConn (not applicable); 2 on a read error.
 set -uo pipefail
 file="${1:?usage: detect_pooled_write_duration_reuse.sh <file> [commit]}"
-commit="${2:-}"
+base="${2:-}"  # base-revision copy from run_detectors.sh (unused here)
 
-if [ -n "$commit" ]; then
-    src="$(git show "${commit}:${file}" 2>/dev/null)"
-else
-    src="$(cat "$file" 2>/dev/null)"
-fi
+src="$(cat "$file" 2>/dev/null)"
 if [ -z "$src" ]; then
-    echo "detect_pooled_write_duration_reuse: cannot read $file${commit:+ @ $commit}" >&2
+    echo "detect_pooled_write_duration_reuse: cannot read $file" >&2
     exit 2
 fi
 
-label="$file${commit:+ @ $commit}"
+label="$file"
 echo "=== pooled-write-duration-reuse detector: $label ==="
 
 if ! printf '%s\n' "$src" | grep -q 'ssl\.SSLConn'; then

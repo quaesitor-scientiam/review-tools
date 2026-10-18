@@ -20,15 +20,11 @@
 # Exit: 1 if pump_for_window reads frames without delegating to dispatch_frame.
 set -uo pipefail
 file="${1:?usage: detect_pump_delegates_dispatch.sh <file> [commit]}"
-commit="${2:-}"
+base="${2:-}"  # base-revision copy from run_detectors.sh (unused here)
 
-if [ -n "$commit" ]; then
-    src="$(git show "${commit}:${file}" 2>/dev/null)"
-else
-    src="$(cat "$file" 2>/dev/null)"
-fi
+src="$(cat "$file" 2>/dev/null)"
 if [ -z "$src" ]; then
-    echo "detect_pump_delegates_dispatch: cannot read $file${commit:+ @ $commit}" >&2
+    echo "detect_pump_delegates_dispatch: cannot read $file" >&2
     exit 2
 fi
 
@@ -49,9 +45,9 @@ if printf '%s\n' "$body" | grep -q 'read_frame' \
     echo "  A response stalled on flow control reads frames here; handling only a"
     echo "  subset (control + RST) drops HEADERS/DATA/CONTINUATION — HPACK desync and"
     echo "  missed RFC 9113 §5.1/§5.1.2 handling. Route through dispatch_frame."
-    echo "  File: $file${commit:+ @ $commit}"
+    echo "  File: $file"
     exit 1
 fi
 
-echo "OK: pump_for_window delegates to dispatch_frame ($file${commit:+ @ $commit})"
+echo "OK: pump_for_window delegates to dispatch_frame ($file)"
 exit 0

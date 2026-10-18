@@ -14,13 +14,14 @@
 # on its failure path. If none of these follow, the write error is silently
 # dropped and the admission gate stays open.
 #
-# Usage: bash detect_swallowed_write.sh <file...>
+# Usage: bash detect_swallowed_write.sh <file> [base_copy_or_empty] [file...]
 # Exit 0 = no candidates; Exit 1 = candidates found (review required).
 
 set -euo pipefail
 found=0
 
-for f in "$@"; do
+# $2 is the base-revision copy passed by run_detectors.sh: never a scan target.
+for f in "$1" "${@:3}"; do
     # Match write/IO operations that swallow their error with or {}
     # Patterns: write_all_locked, send_frame, send_window_update, send_rst_stream,
     # send_ping, send_goaway, transport.write, write_all

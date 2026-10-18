@@ -6,10 +6,12 @@ path that works today, so fixing any of these needs a NEW known_bad case first.
 
 ## Argument-contract bugs (silent no-ops via the runner)
 
-- `detect_info_leak.sh`, `detect_tls_weak_config.sh`: `$1` is a BASE revision, but
-  `run_detectors.sh` passes a file path. `git diff <file>..HEAD` fails, `|| true`
-  swallows it, the file list is empty and both exit 0 without scanning anything.
-  Same class as the rev 66 `detect_unsafe_blocks` bug. Fixtures cover git mode only.
+- FIXED (Step 4, runner owns git): `detect_info_leak.sh`, `detect_tls_weak_config.sh`
+  took a BASE revision as `$1` while the runner passed a file, so via the runner
+  they exited 0 without scanning. Both are per-file now. Same step: the four
+  `<file...>` detectors (error_scope, hpack_decode_scope, padding_credit,
+  swallowed_write) scanned the base copy in `$2` as a second target; the fixture
+  runner now passes a decoy `$2` to every single-file case so this cannot recur.
 - `detect_settings_arm_parity.sh` ignores argv beyond `$1` and finds its sibling by
   `h2_*.v` in the target's directory; the fixture needs an explicit `args`.
 - `detect_quic_test_missing_openssl_gate.sh` reads `cmd/tools/vtest-self.v` relative

@@ -35,19 +35,15 @@
 #       call; 2 on a read error.
 set -uo pipefail
 file="${1:?usage: detect_pool_collect_release_clear.sh <file> [commit]}"
-commit="${2:-}"
+base="${2:-}"  # base-revision copy from run_detectors.sh (unused here)
 
-if [ -n "$commit" ]; then
-    src="$(git show "${commit}:${file}" 2>/dev/null)"
-else
-    src="$(cat "$file" 2>/dev/null)"
-fi
+src="$(cat "$file" 2>/dev/null)"
 if [ -z "$src" ]; then
-    echo "detect_pool_collect_release_clear: cannot read $file${commit:+ @ $commit}" >&2
+    echo "detect_pool_collect_release_clear: cannot read $file" >&2
     exit 2
 fi
 
-label="$file${commit:+ @ $commit}"
+label="$file"
 echo "=== pool-collect-release-clear detector: $label ==="
 
 if ! printf '%s\n' "$src" | grep -qE '\bt\.mu\.unlock\(\)'; then

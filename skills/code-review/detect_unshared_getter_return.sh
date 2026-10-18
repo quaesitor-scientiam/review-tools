@@ -35,17 +35,12 @@
 
 set -u
 file="${1:?usage: detect_unshared_getter_return.sh <file> [gitrev]}"
-rev="${2:-}"
+base="${2:-}"  # base-revision copy from run_detectors.sh (unused here)
 
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
-if [ -n "$rev" ]; then
-  git show "${rev}:${file}" > "$tmp" || { echo "cannot read $file @ $rev"; exit 2; }
-  label="$file @ $rev"
-else
-  cp "$file" "$tmp"
-  label="$file (working tree)"
-fi
+cp "$file" "$tmp" || { echo "cannot read $file"; exit 2; }
+label="$file"
 
 echo "=== unshared-getter-return detector: $label ==="
 found=0

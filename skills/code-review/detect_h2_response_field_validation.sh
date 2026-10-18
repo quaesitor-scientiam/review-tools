@@ -22,7 +22,11 @@
 set -uo pipefail
 
 mux="${1:-vlib/net/http/h2_mux_conn.v}"
-sync="${2:-vlib/net/http/h2_conn.v}"
+# $2 used to be the sync-client file; run_detectors.sh now passes the base-
+# revision copy there, so the sibling is derived from the mux file's directory
+# unless $2 itself is an h2_conn.v (the explicit two-file form still works).
+sync="$(dirname "$mux")/h2_conn.v"
+case "${2:-}" in *h2_conn.v) sync="$2" ;; esac
 
 fail=0
 for f in "$mux" "$sync"; do

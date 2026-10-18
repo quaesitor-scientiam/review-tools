@@ -21,14 +21,9 @@
 set -euo pipefail
 
 FILE="${1:-vlib/net/http/h2_mux_conn.v}"
-COMMIT="${2:-}"
+BASE="${2:-}"  # base-revision copy from run_detectors.sh (unused here)
 
-if [[ -n "$COMMIT" ]]; then
-    content=$(git show "${COMMIT}:${FILE}" 2>/dev/null \
-        || { echo "ERROR: cannot read ${COMMIT}:${FILE}"; exit 2; })
-else
-    content=$(cat "$FILE")
-fi
+content=$(cat "$FILE") || { echo "ERROR: cannot read ${FILE}"; exit 2; }
 
 # Strategy: parse send_header_block_locked line by line.
 # After the initial c.fmu.unlock() (end of function-entry snapshot), track:

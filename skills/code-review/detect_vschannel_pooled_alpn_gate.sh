@@ -21,14 +21,10 @@
 set -uo pipefail
 
 file="${1:?usage: detect_vschannel_pooled_alpn_gate.sh <file> [commit]}"
-commit="${2:-}"
+base="${2:-}"  # base-revision copy from run_detectors.sh (unused here)
 
 src() {
-	if [ -n "$commit" ]; then
-		git show "$commit:$file"
-	else
-		cat "$file"
-	fi
+	cat "$file"
 }
 
 body="$(src | awk '/^fn h2_dial_probe_vschannel/{f=1} f{print} f && /^}/{exit}')"

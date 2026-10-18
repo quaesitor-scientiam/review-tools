@@ -19,15 +19,11 @@
 # Exit: 1 if the defect is present, 0 if clean (or no classifier in the file).
 set -uo pipefail
 file="${1:?usage: detect_stream_state_even_idle.sh <file> [commit]}"
-commit="${2:-}"
+base="${2:-}"  # base-revision copy from run_detectors.sh (unused here)
 
-if [ -n "$commit" ]; then
-    src="$(git show "${commit}:${file}" 2>/dev/null)"
-else
-    src="$(cat "$file" 2>/dev/null)"
-fi
+src="$(cat "$file" 2>/dev/null)"
 if [ -z "$src" ]; then
-    echo "detect_stream_state_even_idle: cannot read $file${commit:+ @ $commit}" >&2
+    echo "detect_stream_state_even_idle: cannot read $file" >&2
     exit 2
 fi
 
@@ -49,9 +45,9 @@ if printf '%s\n' "$fn_body" | grep -qE 'return[[:space:]]+\.?closed' \
     echo "FLAG: classify_stream returns .closed with no odd-id (\`& 1\`) parity guard."
     echo "  A never-opened EVEN (server-initiated) id is IDLE, not closed; a frame on"
     echo "  it must be a connection PROTOCOL_ERROR (RFC 9113 §5.1), not STREAM_CLOSED."
-    echo "  File: $file${commit:+ @ $commit}"
+    echo "  File: $file"
     exit 1
 fi
 
-echo "OK: classify_stream gates 'closed' on stream-id parity ($file${commit:+ @ $commit})"
+echo "OK: classify_stream gates 'closed' on stream-id parity ($file)"
 exit 0

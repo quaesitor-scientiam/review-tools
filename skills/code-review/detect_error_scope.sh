@@ -25,7 +25,7 @@
 # rarely exceed 60 lines in this module); false positives are possible for
 # very long functions — confirm the fn signature by reading the context.
 #
-# Usage: bash detect_error_scope.sh <file...>
+# Usage: bash detect_error_scope.sh <file> [base_copy_or_empty] [file...]
 # Exit 0 = no candidates; Exit 1 = candidates found (review required).
 
 set -u
@@ -40,7 +40,8 @@ READER_FNS='dispatch_frame|handle_control_frame|mux_read_frame|on_response_data|
 
 found=0
 
-for f in "$@"; do
+# $2 is the base-revision copy passed by run_detectors.sh: never a scan target.
+for f in "$1" "${@:3}"; do
     echo "=== error-scope scan: $f ==="
     any=0
     total_lines=$(wc -l < "$f" | tr -d ' ')

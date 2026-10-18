@@ -18,14 +18,9 @@
 set -euo pipefail
 
 FILE="${1:-vlib/net/http/h2_server.v}"
-COMMIT="${2:-}"
+BASE="${2:-}"  # base-revision copy from run_detectors.sh (unused here)
 
-if [[ -n "$COMMIT" ]]; then
-    content=$(git show "${COMMIT}:${FILE}" 2>/dev/null \
-        || { echo "ERROR: cannot read ${COMMIT}:${FILE}"; exit 2; })
-else
-    content=$(cat "$FILE")
-fi
+content=$(cat "$FILE") || { echo "ERROR: cannot read ${FILE}"; exit 2; }
 
 # Strategy: find apply_settings, then find h2_settings_initial_window_size arm.
 # Within that arm, record the line of `c.peer.initial_window_size = ` (the

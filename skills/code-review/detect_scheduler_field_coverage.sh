@@ -40,20 +40,16 @@ file="${1:?usage: detect_scheduler_field_coverage.sh <file> [struct_name fn_name
 if [ $# -ge 3 ]; then
     struct_name="$2"
     fn_name="$3"
-    commit="${4:-}"
+    base="${4:-}"  # base-revision copy from run_detectors.sh (unused here)
 else
     struct_name=""
     fn_name=""
-    commit="${2:-}"
+    base="${2:-}"  # base-revision copy from run_detectors.sh (unused here)
 fi
 
-if [ -n "$commit" ]; then
-    src="$(git show "${commit}:${file}" 2>/dev/null)"
-else
-    src="$(cat "$file" 2>/dev/null)"
-fi
+src="$(cat "$file" 2>/dev/null)"
 if [ -z "$src" ]; then
-    echo "detect_scheduler_field_coverage: cannot read $file${commit:+ @ $commit}" >&2
+    echo "detect_scheduler_field_coverage: cannot read $file" >&2
     exit 2
 fi
 
@@ -72,7 +68,7 @@ if [ -z "$fn_name" ]; then
     fi
 fi
 
-label="$file${commit:+ @ $commit} — struct ${struct_name}, fn ${fn_name}"
+label="$file — struct ${struct_name}, fn ${fn_name}"
 echo "=== scheduler-field-coverage detector: $label ==="
 
 struct_body="$(printf '%s\n' "$src" | awk -v s="$struct_name" '

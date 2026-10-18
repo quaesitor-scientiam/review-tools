@@ -1,25 +1,40 @@
 #!/usr/bin/env bash
 # run_detectors.sh — run every applicable mechanical review detector in one shot.
 #
-# Replaces the hand-written `for d in detect_a detect_b ...` loop rebuilt from
-# scratch in every review session. Selects detectors by a target-file manifest
-# (a mux-only detector is not run against h2_server.v and vice versa), runs each,
-# and prints a pass/flag table plus a summary.
+# The runner OWNS ALL GIT ACCESS. It computes the target file list and the base
+# revision once, extracts base-revision copies into a temp dir, and hands each
+# detector plain paths only:
+#
+#     bash detect_x.sh <file> <base_copy_or_empty>
+#
+# <file> is the path to scan (repo-relative, inside the scan root the runner
+# cd's into); <base_copy_or_empty> is a temp-file copy of the same file at the
+# base revision, or an empty string when the file did not exist there. No
+# detector calls git itself any more (tests/run_fixtures.sh enforces that), so
+# detectors run identically from a plain directory, a fixture case, WSL, macOS
+# and git-bash.
 #
 # Usage:
-#   bash .claude/skills/code-review/run_detectors.sh [file.v ...]
+#   bash run_detectors.sh [--base <rev>] [--at <rev>] [file.v ...]
 #
-# With no args, the target set is every changed .v file (working tree vs HEAD,
-# plus the branch diff vs merge-base with master). Run from the repo root, in
-# WSL/Linux — several detectors use per-line subshells that hang on git-bash.
+#   file.v ...   target files (repo-relative or absolute; Windows separators and
+#                CRLF-polluted args are normalised). With no files, the target
+#                set is every changed .v file (working tree vs HEAD, plus the
+#                branch diff vs merge-base with master).
+#   --base <rev> revision the base copies come from (default: merge-base of
+#                master and HEAD; no base copies if that cannot be computed).
+#   --at <rev>   scan the targets AS THEY WERE at <rev> (Phase-R reproduction
+#                of a reviewed commit): the runner extracts every target plus the
+#                other .v files of each target's directory (and
+#                cmd/tools/vtest-self.v) at <rev> into a temp tree that mirrors
+#                the repo layout, and scans there. This replaces the old
+#                per-detector `detect_x.sh <file> <gitrev>` form.
 #
-# Works from a Windows-created git WORKTREE under WSL too: when Linux git
-# cannot read the worktree's drive-letter `gitdir:` pointer, the script
-# resolves it to /mnt/<drive>/... itself and exports GIT_DIR/GIT_WORK_TREE
-# (see the fallback below). From a worktree, invoke the script by absolute
-# path (e.g. /mnt/s/repo/vlang/.claude/skills/code-review/run_detectors.sh);
-# the repo-relative path in the usage line assumes the main checkout, where
-# .claude/skills/code-review is a junction to ~/.claude/skills/code-review.
+# Run from inside the target repo. On Windows run it under WSL — several
+# detectors use per-line subshells that hang on git-bash. From a Windows-created
+# git WORKTREE under WSL the script resolves the drive-letter `gitdir:` pointer
+# to /mnt/<drive>/... itself and exports GIT_DIR/GIT_WORK_TREE (see below); this
+# stays until the V port removes the WSL dependency.
 #
 # Exit: 0 if no detector flagged; 1 if any detector exited 1 (candidates to
 # review — for enumerate-and-verify detectors that is not automatically a bug);
@@ -27,23 +42,35 @@
 
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
-# repo_root is the TARGET repo being reviewed (from CWD via git), which is
-# NOT necessarily 3 levels up from this script's own location once these
-# detectors live in a global (~/.claude/skills) rather than per-project
-# (.claude/skills) directory. $here stays script-location-relative (that's
-# always where the sibling detector .sh files live); repo_root is resolved
-# independently so this works identically from either location.
+
+# ---- options ---------------------------------------------------------------
+base_rev=""
+at_rev=""
+args=()
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --base) base_rev="${2:-}"; shift 2 ;;
+        --base=*) base_rev="${1#--base=}"; shift ;;
+        --at) at_rev="${2:-}"; shift 2 ;;
+        --at=*) at_rev="${1#--at=}"; shift ;;
+        -h|--help) sed -n '2,42p' "$0"; exit 0 ;;
+        --) shift; while [ "$#" -gt 0 ]; do args+=("$1"); shift; done ;;
+        -*) echo "run_detectors: unknown option $1" >&2; exit 2 ;;
+        *) args+=("$1"); shift ;;
+    esac
+done
+
+# ---- repo root (with WSL worktree fallback) ----------------------------------
+# repo_root is the TARGET repo being reviewed (from CWD via git), independent of
+# where this script lives ($here is where the sibling detector files are).
 git_err="$(git rev-parse --show-toplevel 2>&1 >/dev/null)"
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"
 if [ -z "$repo_root" ]; then
-    # WSL fallback. A worktree created on Windows has a `.git` POINTER FILE
-    # containing a drive-letter path (`gitdir: S:/repo/vlang/.git/worktrees/x`)
-    # that Linux git cannot interpret, so rev-parse dies with
-    # "not a git repository: (null)". Walk up from CWD to that pointer, translate
-    # the path to /mnt/<drive>/..., and hand git the resolved locations
-    # explicitly. GIT_DIR/GIT_WORK_TREE are EXPORTED on purpose: the detectors
-    # run below do their own `git show`/`git merge-base`/`git diff` and must
-    # inherit the same resolution, or every one of them fails the same way.
+    # A worktree created on Windows has a `.git` POINTER FILE containing a
+    # drive-letter path (`gitdir: S:/repo/vlang/.git/worktrees/x`) that Linux
+    # git cannot interpret. Walk up from CWD to that pointer, translate the
+    # path to /mnt/<drive>/..., and hand git the resolved locations explicitly.
+    # Exported so every git call below (all in this script now) inherits it.
     dir="$PWD"
     while [ -n "$dir" ] && [ "$dir" != "/" ]; do
         if [ -d "$dir/.git" ]; then
@@ -79,28 +106,75 @@ if [ -z "$repo_root" ]; then
     exit 2
 fi
 cd "$repo_root" || exit 2
+repo_root="$(pwd -P)"
 
 # ---- target files ----------------------------------------------------------
-if [ "$#" -gt 0 ]; then
-    files=("$@")
+normalise() { # one path -> repo-relative, forward slashes, no CR, no leading ./
+    local p="$1"
+    p="${p//$'\r'/}"
+    p="${p//\\//}"
+    case "$p" in
+        [A-Za-z]:/*) command -v cygpath >/dev/null 2>&1 && p="$(cygpath -u "$p")" ;;
+    esac
+    case "$p" in
+        "$repo_root"/*) p="${p#"$repo_root"/}" ;;
+    esac
+    p="${p#./}"
+    printf '%s' "$p"
+}
+files=()
+if [ "${#args[@]}" -gt 0 ]; then
+    for a in "${args[@]}"; do files+=("$(normalise "$a")"); done
 else
-    base="$(git merge-base master HEAD 2>/dev/null)"
+    mb="$(git merge-base master HEAD 2>/dev/null)"
     mapfile -t files < <(
-        { git diff --name-only HEAD; [ -n "$base" ] && git diff --name-only "$base"...HEAD; } \
+        { git diff --name-only HEAD; [ -n "$mb" ] && git diff --name-only "$mb"...HEAD; } \
         | grep -E '\.v$' | sort -u
     )
 fi
-# keep only files that exist
+[ -z "$base_rev" ] && base_rev="$(git merge-base master HEAD 2>/dev/null)"
+
+# ---- extraction: base copies, and the --at tree ----------------------------
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+scan_root="$repo_root"
+if [ -n "$at_rev" ]; then
+    git rev-parse --verify --quiet "${at_rev}^{commit}" >/dev/null || { echo "run_detectors: --at: unknown revision '$at_rev'" >&2; exit 2; }
+    scan_root="$tmp/at"
+    dirs=()
+    for f in "${files[@]}"; do dirs+=("$(dirname "$f")"); done
+    extract_at() { # $1=path  -> extracts $at_rev:$1 into scan_root if it exists
+        git cat-file -e "${at_rev}:$1" 2>/dev/null || return 1
+        mkdir -p "$scan_root/$(dirname "$1")"
+        git show "${at_rev}:$1" > "$scan_root/$1"
+    }
+    for d in $(printf '%s\n' "${dirs[@]}" | sort -u); do
+        while IFS= read -r p; do [ -n "$p" ] && extract_at "$p"; done < <(git ls-tree --name-only "$at_rev" -- "$d/" 2>/dev/null | grep -E '\.v$')
+    done
+    extract_at cmd/tools/vtest-self.v >/dev/null 2>&1 || true
+fi
+# keep only files that exist in the scan root
 existing=()
-for f in "${files[@]:-}"; do [ -f "$f" ] && existing+=("$f"); done
+for f in "${files[@]:-}"; do [ -n "$f" ] && [ -f "$scan_root/$f" ] && existing+=("$f"); done
 if [ "${#existing[@]}" -eq 0 ]; then
     echo "run_detectors: no target .v files (pass paths explicitly or make changes first)" >&2
     exit 2
 fi
+declare -A base_copy=()
+if [ -n "$base_rev" ]; then
+    for f in "${existing[@]}"; do
+        if git cat-file -e "${base_rev}:${f}" 2>/dev/null; then
+            mkdir -p "$tmp/base/$(dirname "$f")"
+            git show "${base_rev}:${f}" > "$tmp/base/$f" && base_copy["$f"]="$tmp/base/$f"
+        fi
+    done
+fi
+cd "$scan_root" || exit 2
 
 # ---- manifest: detector -> basename regex of files it applies to ------------
-# A detector runs once per matching target file (the file is passed as $1;
-# detectors with a hardcoded target ignore it, which is harmless).
+# A detector runs once per matching target file: `bash detect_x.sh <file>
+# <base_copy_or_empty>` (detectors with a hardcoded target ignore the args,
+# which is harmless).
 declare -A manifest=(
     # any V file
     [detect_lenient_parse.sh]='.*\.v'
@@ -177,7 +251,8 @@ declare -A manifest=(
 flagged=0
 ran=0
 skipped_all=1
-printf '%s\n' "=== run_detectors: ${#existing[@]} target file(s) ==="
+label_suffix=""; [ -n "$at_rev" ] && label_suffix=" @ $at_rev"
+printf '%s\n' "=== run_detectors: ${#existing[@]} target file(s)${label_suffix}, base ${base_rev:-none} ==="
 for f in "${existing[@]}"; do
     echo "--- target: $f"
     bn="$(basename "$f")"
@@ -185,7 +260,7 @@ for f in "${existing[@]}"; do
         [ -f "$here/$det" ] || continue
         if echo "$bn" | grep -qE "${manifest[$det]}"; then
             skipped_all=0
-            out="$(bash "$here/$det" "$f" 2>&1)"
+            out="$(bash "$here/$det" "$f" "${base_copy[$f]:-}" 2>&1)"
             rc=$?
             ran=$((ran + 1))
             last="$(printf '%s\n' "$out" | grep -v '^\s*$' | tail -1)"

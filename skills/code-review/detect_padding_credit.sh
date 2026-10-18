@@ -9,14 +9,15 @@
 #              block, so padding-only DATA frames (data.len==0, flow_size>0)
 #              never return window credit and permanently shrink the window.
 #
-# Usage: bash detect_padding_credit.sh <file...>
+# Usage: bash detect_padding_credit.sh <file> [base_copy_or_empty] [file...]
 # Exit 0 = clean; Exit 1 = defect found.
 
 set -euo pipefail
 
 found=0
 
-for f in "$@"; do
+# $2 is the base-revision copy passed by run_detectors.sh: never a scan target.
+for f in "$1" "${@:3}"; do
     # Pattern 1: wrong amount — send_window_update or conn_recv_window using data.len
     if grep -nE '(send_window_update|conn_recv_window).*\bdata\.len\b' "$f"; then
         echo "PADDING-CREDIT [P1-amount]: $f — data.len used as credit amount (should be flow_size)"

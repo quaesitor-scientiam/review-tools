@@ -14,8 +14,11 @@ tests/<detector-name>/known_good/<case>/...  expected exit 0
 
 A case directory is a miniature working tree. The runner `cd`s into it and runs
 the detector with each regular file in the case as an argument (sorted, relative
-paths). Detectors whose target path is hardcoded (e.g. `vlib/net/http/h2_server.v`)
-get the file at that relative path inside the case and an empty `args` file.
+paths). A single-file case also gets a second argument, mirroring the
+`<file> <base_copy_or_empty>` contract of `run_detectors.sh`: the empty string
+for known_bad, and for known_good a decoy (the detector's first known_bad file),
+so a detector that scans `$2` as a target fails its known_good case. Detectors whose
+target path is hardcoded (e.g. `vlib/net/http/h2_server.v`) get the file at that relative path inside the case and an empty `args` file.
 
 Control files inside a case (all optional):
 
@@ -41,7 +44,10 @@ git-bash: `wsl -e bash -lc 'cd /mnt/s/repo/review-tools && bash tests/run_fixtur
 
 With no arguments the runner also fails for any detector on disk that has neither a
 `tests/<name>/` directory nor a row in `UNFIXTURED.md`, so a new detector cannot be
-added without a fixture or a written reason.
+added without a fixture or a written reason; for any detector that calls `git`
+(the runner owns all git access); and it runs a smoke test of `run_detectors.sh`
+itself on a throwaway repo (no-arg change detection, `--at <rev>`, path
+normalisation).
 
 ## Writing a fixture
 

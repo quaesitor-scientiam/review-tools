@@ -34,10 +34,9 @@
 
 set -u
 file="${1:?usage: detect_unbounded_accum.sh <file> [gitrev]}"
-rev="${2:-}"
+base="${2:-}"  # base-revision copy from run_detectors.sh (unused here)
 tmp="$(mktemp)"; trap 'rm -f "$tmp"' EXIT
-if [ -n "$rev" ]; then git show "${rev}:${file}" > "$tmp" || exit 2; label="$file @ $rev"
-else cp "$file" "$tmp"; label="$file (working tree)"; fi
+cp "$file" "$tmp" || exit 2; label="$file"
 
 echo "=== unbounded-accumulation detector: $label ==="
 need=0

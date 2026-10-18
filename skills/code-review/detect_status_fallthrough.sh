@@ -12,13 +12,9 @@
 set -euo pipefail
 
 file="${1:-vlib/net/http/h2_conn.v}"
-commit="${2:-}"
+base="${2:-}"  # base-revision copy from run_detectors.sh (unused here)
 
-if [[ -n "$commit" ]]; then
-    content=$(git show "${commit}:${file}")
-else
-    content=$(cat "$file")
-fi
+content=$(cat "$file")
 
 # State machine:
 #   0 = looking for read_response fn header

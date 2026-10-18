@@ -498,7 +498,7 @@ platform makes this wrong?
   a zero-value and proceed? Missed on PR #27413: `all_digits(f.value)` guard added
   to `:status` parsing in `h2_conn.v`, but `got_headers = true` still fired on
   rejection — caller received `status == 0` with no error. Run the detector:
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_status_fallthrough.sh <file> [commit]`
+  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_status_fallthrough.sh <file>` (for a past revision: `run_detectors.sh --at <rev> <file>`)
   (exits 1 if `:status` guard is present but `got_headers = true` is reachable
   without an error return when the guard fails).
 - **Singleton wire field extracted in a loop (validate EVERY occurrence):** when a
@@ -1308,7 +1308,7 @@ declared lock. Pay special attention to:
     `c.fcv.broadcast()` — upload goroutines blocked in `fcv.wait()` on
     `s.send_dead` never woke when the server reset the stream (commit 4390e1773f).
   Run the mechanical detector for the send_window case:
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_missing_fcv_broadcast.sh <file> [commit]`
+  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_missing_fcv_broadcast.sh <file>` (for a past revision: `run_detectors.sh --at <rev> <file>`)
   (exits 1 if `send_window += excess` appears in `send_body_on_stream` without
   `fcv.broadcast()` before the following `fmu.unlock()`). For the broader check,
   list the full predicate of every `cv.wait()` call in the file and verify every
@@ -1511,7 +1511,7 @@ declared lock. Pay special attention to:
   acquired `wmu` to write DATA — reader could shrink `peer_max_frame` + send
   SETTINGS ACK in the window, causing an oversized DATA frame after the peer
   started enforcing the new limit. Run the mechanical detector:
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_fmu_scope.sh <file> [commit]`
+  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_fmu_scope.sh <file>` (for a past revision: `run_detectors.sh --at <rev> <file>`)
   (exits 1 if `c.fmu.unlock()` precedes `c.wmu.lock()+H2DataFrame` in
   `send_body_on_stream` with no intervening `return` or `fmu.lock()`).
 - **wmu→fmu recheck completeness (all fmu-protected state) — a Matrix 3 instance:** When a `wmu→fmu`
@@ -1526,7 +1526,7 @@ declared lock. Pay special attention to:
   not `s.send_window`; an INITIAL_WINDOW_SIZE reduction in the window drove
   `s.send_window` negative after the debit, causing DATA to exceed the peer's new
   stream window → FLOW_CONTROL_ERROR. Run the mechanical detector:
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_initial_window_recheck.sh <file> [commit]`
+  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_initial_window_recheck.sh <file>` (for a past revision: `run_detectors.sh --at <rev> <file>`)
   (exits 1 if the wmu→fmu block in `send_body_on_stream` lacks an `s.send_window < 0`
   guard).
 - **A reader-side recheck only closes a TOCTOU if the WRITER serializes too —
@@ -1556,7 +1556,7 @@ declared lock. Pay special attention to:
   per-iteration `fmu.lock/read/unlock` re-reads — but the first multi-frame HEADERS
   write (immediately before the loop) still used the stale `max` snapshot from
   function entry. Run the mechanical detector:
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_headers_max_reread.sh <file> [commit]`
+  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_headers_max_reread.sh <file>` (for a past revision: `run_detectors.sh --at <rev> <file>`)
   (exits 1 if the first multi-frame HEADERS write in `send_header_block_locked` has
   no `fmu` re-read between the function-entry snapshot and the write).
 - **Swallowed write-error windows:** For each `or {}` on a write/IO operation, ask:
