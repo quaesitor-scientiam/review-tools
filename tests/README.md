@@ -49,10 +49,11 @@ added without a fixture or a written reason; for any detector that calls `git`
 itself on a throwaway repo (no-arg change detection, `--at <rev>`, path
 normalisation).
 
-A detector that also has a V port in `detectors/<name>.v` is tested twice: the
-`.sh` script and the port compiled once per run (cases are labelled `[v]`). The
-compiler is `$DETECT_V` or `v` on PATH; without one the `[v]` cases are skipped.
-A port is only promoted (its `.sh` deleted) once both pass the same cases.
+Every detector is a V program in `detectors/<name>.v`, compiled once per run
+(cases are labelled `[v]`); a `.sh`/`.ps1` twin in `skills/code-review/`, if one
+still exists, is tested too. The compiler is `$DETECT_V` or `v` on PATH; without
+one the `[v]` cases are skipped. The runner smoke test exercises both
+`run_detectors.sh` and the compiled `run_detectors.v`.
 
 ## Writing a fixture
 

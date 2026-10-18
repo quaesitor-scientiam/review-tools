@@ -98,7 +98,7 @@ if [ -f "$html" ] && { [ "$plugin_is_git" -eq 0 ] || [ "$same_repo" -eq 1 ]; }; 
   else
     for src in "$plugin_root/skills/vreview/SKILL.md" \
                "$plugin_root"/skills/code-review/*.sh \
-               "$plugin_root"/skills/code-review/*.ps1 \
+               "$plugin_root"/detectors/*.v \
                "$plugin_root/skills/code-review/h2_conformance_matrix.md" \
                "$plugin_root/skills/code-review/quic_conformance_matrix.md"; do
       [ -f "$src" ] && [ "$src" -nt "$html" ] && { stale="$src is newer than the HTML"; break; }

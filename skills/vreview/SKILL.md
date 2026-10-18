@@ -25,10 +25,13 @@ root first: `wsl -e bash -lc 'root=$(wslpath -u "<expanded root>"); cd /mnt/s/re
 The commit gate (`${CLAUDE_PLUGIN_ROOT}/hooks/require_code_review.sh`) and the HTML
 reference (`${CLAUDE_PLUGIN_ROOT}/reference/code-review-reference.html`) live in the
 same plugin; nothing is read from the target repo's `.claude/` directory any more.
-Detectors ported to V live in `${CLAUDE_PLUGIN_ROOT}/detectors/*.v`; `run_detectors.sh`
-compiles them once per run with the target repo's `./v` (or `v` on PATH, or `$DETECT_V`)
-and prefers them over the `.sh` twins (`DETECT_IMPL=sh|v` forces one side). Past
-revisions: `run_detectors.sh --at <rev> <file>`; detectors themselves never call git.
+All detectors are V programs in `${CLAUDE_PLUGIN_ROOT}/detectors/*.v`, run through the V
+runner `${CLAUDE_PLUGIN_ROOT}/detectors/run_detectors.v`, so on Windows the whole loop runs
+from PowerShell with no bash or WSL:
+`S:\\repo\\vlang\\v.exe run "<expanded root>/detectors/run_detectors.v" <files>` from the
+checkout being reviewed (it compiles the detectors once into a cache under %TEMP%). On
+WSL/macOS `v run ...` or the thin `run_detectors.sh` work the same. Past revisions:
+`--at <rev> <file>`; detectors themselves never call git.
 
 ## Input
 $ARGUMENTS (optional: PR number, branch name, --fix, --comment, effort level,
@@ -207,7 +210,7 @@ does. Standard and Lite keep the per-angle cap and normal N/A discretion.
    of degrading to h1. When mirroring function X, grep X's callers and list
    every condition they check before calling X; each one is a parity
    candidate for the new path. Run the mechanical detector for this instance:
-   `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_vschannel_pooled_alpn_gate.sh
+   `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_vschannel_pooled_alpn_gate.v
    vlib/net/http/vschannel_pooled_transport_windows.c.v` (exit 1 on
    `e0368d7a2d`, 0 after the gate).
    **The sibling can live in another LANGUAGE or LAYER.** When two layers
@@ -449,7 +452,7 @@ platform makes this wrong?
   freed it correctly — a sibling-parity gap (Phase 0 step 7) within one
   file's own test helpers. **This one-hop struct-field-threading case IS
   mechanically checkable** — do not assume it needs real data-flow/alias
-  analysis before trying: `detect_struct_wrapped_resource_leak.sh` resolves
+  analysis before trying: `detect_struct_wrapped_resource_leak.v` resolves
   it with two chained greps (struct field of the resource type → its
   enclosing struct → every function returning that struct and which position
   → every call site's binding at that position), no interprocedural analysis
@@ -469,7 +472,7 @@ platform makes this wrong?
   return type is flagged even though the detector can't see whether that
   struct itself contains array/map fields, so confirm each candidate by
   hand; a plain value type like an enum is a safe, dismissible candidate):
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_unshared_getter_return.sh <file>`.
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_unshared_getter_return.v <file>`.
   Missed on vlang/v#27880 (Codex round 4, three rounds after the file was
   first written): `CryptoStreamReassembler.data()` returned `r.received`
   directly; a caller doing `mut d := r.data(); d[0] = x` corrupted the
@@ -502,7 +505,7 @@ platform makes this wrong?
   a zero-value and proceed? Missed on PR #27413: `all_digits(f.value)` guard added
   to `:status` parsing in `h2_conn.v`, but `got_headers = true` still fired on
   rejection — caller received `status == 0` with no error. Run the detector:
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_status_fallthrough.sh <file>` (for a past revision: `run_detectors.sh --at <rev> <file>`)
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_status_fallthrough.v <file>` (for a past revision: `run_detectors.sh --at <rev> <file>`)
   (exits 1 if `:status` guard is present but `got_headers = true` is reachable
   without an error return when the guard fails).
 - **Singleton wire field extracted in a loop (validate EVERY occurrence):** when a
@@ -669,7 +672,7 @@ silently fails there. Missed on #27589: the h2 server reads frames in TWO places
 stall). PR2 added refuse/idle/closed handling to `dispatch_frame` only, so a HEADERS
 arriving during a stall went through `pump_for_window`, which dropped it (HPACK
 desync, no refuse). Fix: the second reader DELEGATES to the one dispatch. Run the
-detector: `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_pump_delegates_dispatch.sh <file>`
+detector: `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_pump_delegates_dispatch.v <file>`
 (flags `pump_for_window` reading frames without `dispatch_frame`; exit 1 on
 `6024da169c`, 0 after). **Rule: prefer one dispatch funnel over N parallel readers;
 when there must be two, the second delegates to the first.**
@@ -690,7 +693,7 @@ RFC 7541 §6.3 Dynamic Table Size Update requirement.
 
 **Mandatory mechanical gate** — run for every diff touching an `apply_*settings`
 or frame-dispatch function. Do not eyeball; do not skip:
-`bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_settings_arm_parity.sh <file>`
+`v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_settings_arm_parity.v <file>`
 Exits 1 when any `h2_settings_*` arm in the reviewed file is comment-only/empty
 while a sibling `h2_*.v` file has executable code for the same arm. Exits 0 when
 all arms with code in one file also have code in siblings (or the arm is
@@ -713,9 +716,9 @@ a malformed response. Canonical missed pattern (commit `a6884cef9d`, Codex on
 reviewer flags ONE instance of a parity gap, audit the WHOLE surface — Codex
 flagged only 1xx+END_STREAM, but `read_response` was missing 5 of the mux path's
 response-validation invariants.** Mechanical gates:
-`bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_h2conn_1xx_end_stream.sh` (1xx interim
+`v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_h2conn_1xx_end_stream.v` (1xx interim
 branch must reject `frame.end_stream` before `continue`) and
-`bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_h2conn_response_parity.sh` (read_response
+`v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_h2conn_response_parity.v` (read_response
 must enforce trailers-END_STREAM, DATA-before-HEADERS, and `:status` range/101).
 Both exit 1 on the pre-fix commits and 0 after.
 
@@ -729,7 +732,7 @@ the trailer block and dropped every field, only marking the stream ended — so
 normally" (Codex P2 `a65240ffb0`, discussion_r3477245531). Subtlety: `wait_response`
 snapshots `resp_headers` once at headers-done, so trailers need a separate
 per-stream `resp_trailers` list flushed into `resp.headers` at stream-end. Gate:
-`bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_mux_trailers_preserved.sh` (the trailers
+`v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_mux_trailers_preserved.v` (the trailers
 branch must append the decoded fields, not merely set `s.ended`).
 
 ### Angle D — Full-file holistic (the Codex angle)
@@ -828,7 +831,7 @@ For each touched file, after reading it in full:
   the problem. Canonical missed pattern: `dispatch_frame` SETTINGS arm got a
   `!handshaked` guard for preface ordering; the PING arm in the same match had the
   identical gap and was never checked. Run the mechanical detector:
-  `pwsh "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_sibling_arms.ps1 <file> <pattern>`
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_sibling_arms.v <file> <pattern>`
   where `<pattern>` is the guard/check just introduced (e.g. `handshaked`,
   `flow_size`, `reset_stream`). Output lists every arm with [HAS] or [MISSING];
   review each [MISSING] arm for the same deficiency.
@@ -843,7 +846,7 @@ For each touched file, after reading it in full:
   WINDOW_UPDATE overflow path correctly did `reset_stream(.flow_control_error)`, but
   `on_response_data`'s stream-receive-window violation did `return error`, killing the
   whole connection for one stream's fault. Run the mechanical detector — do **not**
-  eyeball: `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_error_scope.sh <file>` (exits 1
+  eyeball: `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_error_scope.v <file>` (exits 1
   on any `return error` found inside a reader-thread function; each candidate is
   annotated with its enclosing function name so you can confirm whether it is a
   genuine connection-level fault or a misplaced stream-level error). The detector's
@@ -855,7 +858,7 @@ For each touched file, after reading it in full:
   wasn't flagged — and the detector wasn't even run. When a new per-stream handler
   is added to a protocol driver, add it to `READER_FNS`. (Note: the detector is
   slow on Windows git-bash — per-line subshells — run it in WSL/Linux.)
-  **Error-scope is bidirectional.** `detect_error_scope.sh` catches a connection
+  **Error-scope is bidirectional.** `detect_error_scope.v` catches a connection
   error (`return error`) that should be per-stream. The INVERSE also misses: a
   per-stream `send_rst_stream` for a fault that must be a CONNECTION error. The
   canonical case is an HPACK `decode()` failure — the decoder mutates the dynamic
@@ -864,7 +867,7 @@ For each touched file, after reading it in full:
   PR #27569 (`finalize_headers`/`finalize_trailers` RST'd decode failures). For any
   fault that desyncs connection-global state (HPACK table, flow-control accounting),
   ask: "is this per-stream RST really a connection error?" Run
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_hpack_decode_scope.sh <file>` (in WSL).
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_hpack_decode_scope.v <file>` (in WSL).
 - **Event multiplicity (the bool-for-repeated-event miss):** When the diff
   introduces a boolean flag to record a deferred or pending event (e.g.
   `pending_settings_ack = true`), ask: can this event occur more than once before
@@ -927,7 +930,7 @@ For each touched file, after reading it in full:
   Rule: **every parse of a wire-derived value MUST have a digit/charset guard at
   the parse site** (upstream validation is not enough — it can be refactored away).
   Run the mechanical detector, do not scan by eye:
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_lenient_parse.sh <file>` (exits non-zero
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_lenient_parse.v <file>` (exits non-zero
   on any unguarded parse). Missed twice on #27413 — `:status`, then its twin
   `content-length` — because the angle was treated as a thing to remember instead
   of a grep to run.
@@ -939,7 +942,7 @@ For each touched file, after reading it in full:
   7541 §2.2) and silently corrupts every subsequent request. Pattern: if a branch
   sends RST_STREAM without first calling `decoder.decode(fragment)`, ask whether
   there is any HEADERS fragment in scope that the decoder has not yet consumed.
-  Run `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_hpack_skip_on_half_closed.sh <file>`.
+  Run `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_hpack_skip_on_half_closed.v <file>`.
 - **Decode-then-discard state must be tracked per FRAME TYPE, not per code path:**
   when a fix adds new state to correctly drain in-flight frames for an
   already-terminated stream (e.g. a server-sent-RST tracking map), check EVERY
@@ -997,7 +1000,7 @@ For each touched file, after reading it in full:
   c.locally_reset`) predated the generalization and was never migrated — found
   only in the NEXT Codex round. Run the mechanical detector — do not rely on
   memory of which sites were already audited:
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_locally_reset_consumers.sh <file>`
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_locally_reset_consumers.v <file>`
   (enumerate-and-verify: lists every direct `locally_reset` check outside
   `classify_stream`/`mark_locally_reset` for per-site confirmation).
 - **Sibling boolean-flag priority (the two-flags-one-function miss):** when a
@@ -1017,7 +1020,7 @@ For each touched file, after reading it in full:
   more specific PROTOCOL_ERROR. Fix: swap the order so the more-specific/
   always-fatal condition is checked first. Run the mechanical detector — do
   not eyeball function bodies for this by hand:
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_flag_priority_order.sh <file>`
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_flag_priority_order.v <file>`
   (enumerate-and-verify: lists every function with 2+ early-return single-
   field boolean checks, in source order, for an explicit both-true review).
 - **A per-branch `locally_reset` check is not a substitute for a dispatch-level
@@ -1035,7 +1038,7 @@ For each touched file, after reading it in full:
   frame.stream_id` before it ever runs. Missed on PR #27589 review
   4613845079 (Codex found the locally_reset instance; a human reviewer caught
   that the branch-local fix was still incomplete). Run
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_orphan_continuation_gate.sh`.
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_orphan_continuation_gate.v`.
 
 ### Angle E — Protocol / RFC compliance (H2 and QUIC)
 **Requirements-driven, not diff-driven.** A diff-driven review cannot find a
@@ -1164,7 +1167,7 @@ incremental review:
   PROTOCOL_ERROR (RFC 9113 §5.1), not STREAM_CLOSED / silently-ignored. "Closed"
   must be `id & 1 == 1 && id <= last_stream_id`. Missed on #27589
   (`classify_stream` had no `& 1` guard). Run the mechanical detector — do not
-  eyeball: `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_stream_state_even_idle.sh <file>`
+  eyeball: `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_stream_state_even_idle.v <file>`
   (flags a `classify_stream` returning `.closed` with no parity guard; exit 1 on
   `e97d398e02`, exit 0 after fix). General lesson: a counter advances over only one
   peer's id space, so "below the counter" still contains never-opened ids of the
@@ -1183,7 +1186,7 @@ incremental review:
   `data.len` silently skips window credit for those bytes, permanently shrinking
   the receive window and eventually stalling unrelated streams. Run the mechanical
   detector — do **not** eyeball:
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_padding_credit.sh <file>`.
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_padding_credit.v <file>`.
   Missed on #27413: H2Conn and H2ServerConn wrapped correct `flow_size` update
   calls inside `if frame.data.len > 0 { }`, so padding-only frames leaked window.
 - **HPACK direction — `SETTINGS_HEADER_TABLE_SIZE` constrains the encoder:**
@@ -1312,7 +1315,7 @@ declared lock. Pay special attention to:
     `c.fcv.broadcast()` — upload goroutines blocked in `fcv.wait()` on
     `s.send_dead` never woke when the server reset the stream (commit 4390e1773f).
   Run the mechanical detector for the send_window case:
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_missing_fcv_broadcast.sh <file>` (for a past revision: `run_detectors.sh --at <rev> <file>`)
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_missing_fcv_broadcast.v <file>` (for a past revision: `run_detectors.sh --at <rev> <file>`)
   (exits 1 if `send_window += excess` appears in `send_body_on_stream` without
   `fcv.broadcast()` before the following `fmu.unlock()`). For the broader check,
   list the full predicate of every `cv.wait()` call in the file and verify every
@@ -1382,7 +1385,7 @@ declared lock. Pay special attention to:
   it — it always tries the non-blocking-in-effect buffered path first. Missed on
   #27643 (Codex P1, pullrequestreview-4626225521): `H2PooledTransport.read()`
   polled the socket before calling `SSLConn.read()`. Run
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_tls_read_precheck_poll.sh <file>`
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_tls_read_precheck_poll.v <file>`
   (flags a `read(mut buf ...) !int` method on a struct wrapping `ssl.SSLConn`
   whose first data-availability check is an outer `wait_for_read()` before the
   wrapped `conn.read()` call).
@@ -1397,7 +1400,7 @@ declared lock. Pay special attention to:
   enumerate-and-verify aid (not a clean gate — it surfaces candidates; some are
   bounded by an admission limit, the protocol, or a cross-file check this
   single-file detector can't see):
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_unbounded_accum.sh <file>`. For each
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_unbounded_accum.v <file>`. For each
   accumulator with no cap, confirm it is bounded by other means; if it is
   peer-driven and not drained in-handler, it needs a cap. Missed on #27413:
   `pending_ping_acks`/`pending_settings_acks` grew unbounded while a peer held the
@@ -1436,7 +1439,7 @@ declared lock. Pay special attention to:
   (`total_idle_locked() + h2_conns.len` correctly counts both) if the action
   only ever acts on one of them. This is easy to miss on a re-touch of the
   same function because the check line reads correctly in isolation. Run
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_pool_cap_scope_symmetry.sh
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_pool_cap_scope_symmetry.v
   vlib/net/http/transport.v` — do not eyeball this one either: on
   vlang/v#27643 round 4, the eviction helper that fixed the ORIGINAL gap
   still only ever evicted from `h2_conns` even after a budget filled
@@ -1458,7 +1461,7 @@ declared lock. Pay special attention to:
   busy h2 connection inflated the check's total without ever being
   something the scan could act on, so an unrelated genuinely-idle h1
   connection got evicted to "fix" a budget that was never actually over.
-  Run `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_idle_cap_counts_busy_conns.sh
+  Run `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_idle_cap_counts_busy_conns.v
   vlib/net/http/transport.v` (narrow, function-specific — flags a bare
   `h2_conns.len` in `evict_oldest_idle_locked`'s cap-check section). **A
   fix for this exact bug can ITSELF get the eligibility filter subtly
@@ -1515,7 +1518,7 @@ declared lock. Pay special attention to:
   acquired `wmu` to write DATA — reader could shrink `peer_max_frame` + send
   SETTINGS ACK in the window, causing an oversized DATA frame after the peer
   started enforcing the new limit. Run the mechanical detector:
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_fmu_scope.sh <file>` (for a past revision: `run_detectors.sh --at <rev> <file>`)
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_fmu_scope.v <file>` (for a past revision: `run_detectors.sh --at <rev> <file>`)
   (exits 1 if `c.fmu.unlock()` precedes `c.wmu.lock()+H2DataFrame` in
   `send_body_on_stream` with no intervening `return` or `fmu.lock()`).
 - **wmu→fmu recheck completeness (all fmu-protected state) — a Matrix 3 instance:** When a `wmu→fmu`
@@ -1530,7 +1533,7 @@ declared lock. Pay special attention to:
   not `s.send_window`; an INITIAL_WINDOW_SIZE reduction in the window drove
   `s.send_window` negative after the debit, causing DATA to exceed the peer's new
   stream window → FLOW_CONTROL_ERROR. Run the mechanical detector:
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_initial_window_recheck.sh <file>` (for a past revision: `run_detectors.sh --at <rev> <file>`)
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_initial_window_recheck.v <file>` (for a past revision: `run_detectors.sh --at <rev> <file>`)
   (exits 1 if the wmu→fmu block in `send_body_on_stream` lacks an `s.send_window < 0`
   guard).
 - **A reader-side recheck only closes a TOCTOU if the WRITER serializes too —
@@ -1548,7 +1551,7 @@ declared lock. Pay special attention to:
   only takes lock B (used for the re-read), the A-fenced region still races — make
   the setter take lock A too (here: update `peer_max_frame` under `wmu`→`fmu`, like
   the `header_table_size` arm fences the HPACK encoder under `wmu`). Detector:
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_peer_max_frame_wmu.sh <file>` (exits 1 if
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_peer_max_frame_wmu.v <file>` (exits 1 if
   the SETTINGS_MAX_FRAME_SIZE arm sets `peer_max_frame` without holding `wmu`).
   vlang/v#27413 discussion_r3474404838.
 - **Pre-loop TOCTOU: fix the loop, fix the entry too — a Matrix 3 instance:** When a TOCTOU is fixed by
@@ -1560,7 +1563,7 @@ declared lock. Pay special attention to:
   per-iteration `fmu.lock/read/unlock` re-reads — but the first multi-frame HEADERS
   write (immediately before the loop) still used the stale `max` snapshot from
   function entry. Run the mechanical detector:
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_headers_max_reread.sh <file>` (for a past revision: `run_detectors.sh --at <rev> <file>`)
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_headers_max_reread.v <file>` (for a past revision: `run_detectors.sh --at <rev> <file>`)
   (exits 1 if the first multi-frame HEADERS write in `send_header_block_locked` has
   no `fmu` re-read between the function-entry snapshot and the write).
 - **Swallowed write-error windows:** For each `or {}` on a write/IO operation, ask:
@@ -1571,7 +1574,7 @@ declared lock. Pay special attention to:
   silently (`or {}`), then write B follows in the same path and *also* fails, and
   only B's failure sets the gate — because between A and B the admission gate is
   unset and another goroutine can observe the resource as healthy. Run the mechanical
-  detector: `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_swallowed_write.sh <file>` (exits
+  detector: `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_swallowed_write.v <file>` (exits
   1 on any `or {}` on a write/send/IO call; for each candidate, verify the enclosing
   function calls `note_write_failure()` / `teardown_transport()` or sets
   `shutting_down`/`closed` on its failure path).
@@ -1589,7 +1592,7 @@ declared lock. Pay special attention to:
   while holding `wmu`, but the `H2GoawayFrame` handler set `c.goaway` under `smu` only
   — a GOAWAY in that window opened a stream after the peer said stop (RFC 7540 §6.8).
   Fix: the GOAWAY handler takes `wmu` before `smu`. Run the mechanical detector:
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_goaway_wmu_serialize.sh <file>`
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_goaway_wmu_serialize.v <file>`
   (exits 1 if the `H2GoawayFrame` arm sets `c.goaway` without a `c.wmu.lock()`).
 - **Double-close / who-owns-the-close (and "safe because local-scope" comments):**
   When a teardown path closes a fd/handle that another thread ALSO closes, ask who
@@ -1617,7 +1620,7 @@ declared lock. Pay special attention to:
   list its other side effects and preserve them: here, relinquish socket ownership
   (`conn.owns_socket = false`, since `shutdown` gates `net.close` on `owns_socket`)
   and STILL call `conn.shutdown()` so the TLS free always runs. Run the mechanical
-  detector: `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_close_idle_double_close.sh`
+  detector: `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_close_idle_double_close.v`
   (exits 1 if the worker does not relinquish ownership via `owns_socket = false`,
   or if `conn.shutdown()` is gated away on the force-closed path — catching both
   the double-close and the TLS-cleanup leak).
@@ -1655,7 +1658,7 @@ declared lock. Pay special attention to:
   (`won_removal := voidptr(existing) == voidptr(conn)`), gate every
   "exactly once" side effect on it, not just the map mutation. Run the
   mechanical detector:
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_ungated_release_after_conditional_delete.sh <file>`
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_ungated_release_after_conditional_delete.v <file>`
   (enumerate-and-verify: flags a `.release()`/`.shutdown_when_idle()`/
   `.close()`/`.free()`/`.shutdown()` call that runs unconditionally after an
   identity-guarded `.delete()` earlier in the same function).
@@ -1671,7 +1674,7 @@ declared lock. Pay special attention to:
   blocking call on a thread that also drives shutdown, require a state-polling escape
   (a `select` with a timeout branch that re-checks the stop flag), and have that
   thread clean up the in-hand item it could not enqueue. Detector:
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_tls_accept_send_interruptible.sh` (exits 1
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_tls_accept_send_interruptible.v` (exits 1
   on a bare `ch <- conn` with no interruptible `select`). vlang/v#27552
   (discussion_r3474019355). **Testing note:** a shutdown/liveness test that PASSES on
   the buggy commit is a FALSE GUARD — Phase R (reproduce → exit 1 on the buggy commit)
@@ -1690,7 +1693,7 @@ declared lock. Pay special attention to:
   so the only wake mechanism can be absent; teardown that guards the close with
   `!= unsafe { nil }` and silently no-ops when nil. Require the closer to be non-nil
   (panic/assert at construction) so the teardown→close→reader-exit chain always exists.
-  Detector: `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_mux_requires_closer.sh` (exits 1 if
+  Detector: `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_mux_requires_closer.v` (exits 1 if
   `new_h2_mux_conn` accepts a nil `close_transport`). vlang/v#27413
   (discussion_r3475761576). **Testing note:** if the fix makes the bad input panic, the
   nil case can't be exercised at runtime (panic aborts the V test binary) — reproduce it
@@ -1705,14 +1708,14 @@ wire-parsing code.
   mbedTLS, verify: (a) `min_version` is explicitly set; (b) the cert validation callback is
   non-null for production code; (c) the ALPN list is complete and ordered (`h2` before `http/1.1`).
   Plaintext fallback paths must be guarded or documented. Run the mechanical detector:
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_tls_weak_config.sh`
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_tls_weak_config.v`
   (exits 1 if any changed file creates `SslConfig{}` or assigns `ssl_config` with no `min_version`
   anywhere in that file).
 - **G2 unsafe{} block scrutiny:** Every `unsafe {}` block in changed files is a potential
   memory-safety hole. For each block: (a) trace pointer arithmetic for out-of-bounds access;
   (b) verify slice length/capacity bounds before indexing; (c) check C-interop object lifetime —
   does the V GC own the pointed-to object, or did C allocate it? Run the mechanical detector:
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_unsafe_blocks.sh`
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_unsafe_blocks.v`
   (exits 1 and lists every changed file containing `unsafe {}`; review each occurrence).
 - **G3 Wire-integer arithmetic overflow:** Protocol arithmetic on wire-derived values (window
   sizes, content-length, frame sizes) wraps silently for `u32`/`i32` in V. For every arithmetic
@@ -1742,7 +1745,7 @@ wire-parsing code.
   risk leaking session IDs, keys, or user data. For every log/print call in the diff, verify the
   interpolated variables are safe to expose (frame types, error codes, byte counts are fine; keys,
   tokens, passwords, session IDs are not). Run the mechanical detector:
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_info_leak.sh`
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_info_leak.v`
   (exits 1 if any log/print call interpolates a variable whose name contains `token`, `key`,
   `secret`, `password`, `nonce`, or `credential`).
 - **G5 Request smuggling:** HTTP/2 forbids Transfer-Encoding (RFC 7540 §8.1.2.2 — connection-
@@ -1763,13 +1766,13 @@ wire-parsing code.
   connection type, grep for how an EXISTING pooled wrapper in the same file/module stores the
   identical type — a fresh wrapper written without that sibling-search check is exactly how
   this class of bug gets introduced. Run the mechanical detector:
-  `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_pooled_conn_stored_by_value.sh <file>`
+  `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_pooled_conn_stored_by_value.v <file>`
   (exits 1 if a struct field is `ssl.SSLConn`/`mbedtls.SSLConn`/`openssl.SSLConn` by value
   instead of `&ssl.SSLConn` etc). Missed on vlang/v#27643 (Codex P1,
   pullrequestreview-4631763931): `H2PooledTransport.conn` was a bare value field while the
   sibling `H1PooledConn.ssl` (same file family) was already `&ssl.SSLConn`.
 - **G8 Hand-rolled/standalone crypto path — G1's checks re-derived, not grepped:** G1's own
-  detector (`detect_tls_weak_config.sh`) is keyed on `SslConfig{}`/`ssl_config` construction —
+  detector (`detect_tls_weak_config.v`) is keyed on `SslConfig{}`/`ssl_config` construction —
   it is BLIND to any TLS/handshake implementation that deliberately bypasses that construct
   (a hand-rolled protocol state machine, a "standalone" X.509 call that never builds an
   `mbedtls_ssl_context`, a from-scratch TLS 1.3 layered under something else). For ANY new file
@@ -2100,7 +2103,7 @@ the review.
    no detector at all because the defect genuinely can't be expressed that
    way. Choose from:
    - **Detector** (default) — a grep or small script that exits non-zero on
-     the defect (see `detect_lenient_parse.sh`). Use when the defect has a
+     the defect (see `detect_lenient_parse.v`). Use when the defect has a
      stable syntactic signature a script can find without dataflow
      analysis.
    - **Conformance matrix row** — when the miss is an absent MUST from a

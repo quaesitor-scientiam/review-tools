@@ -134,7 +134,7 @@ by finding 4 you've mentally filed findings 1-3 as "already handled").
   because the fix was verified against "does it stop the reported bug," not
   against the function's own stated contract). Mechanical assist for THIS
   specific pattern (a shared-cap check referencing more containers than the
-  action touches): `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/detect_pool_cap_scope_symmetry.sh <file>`.
+  action touches): `v run "${CLAUDE_PLUGIN_ROOT}"/detectors/detect_pool_cap_scope_symmetry.v <file>`.
 - **Test-first for the invariant the fix establishes, not just the reported
   symptom.** Phase R already requires reproducing Codex's SPECIFIC complaint
   before fixing it. Separately: if the fix introduces a NEW invariant that

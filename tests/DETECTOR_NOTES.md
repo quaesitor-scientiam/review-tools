@@ -1,7 +1,8 @@
-# Detector weaknesses found while writing fixtures (2026-10-18)
+# Detector weaknesses found while writing fixtures and porting (2026-10-18)
 
-Observed while fixturing every detector; none fixed yet. Each is a candidate for
-the Step 4 (runner owns git) and Step 5 (port to V) passes. Fixtures exercise the
+Observed while fixturing and then porting every detector to V. The ports
+preserve these quirks on purpose (a port had to pass exactly the fixtures its
+shell twin passed); each remains a candidate fix. Fixtures exercise the
 path that works today, so fixing any of these needs a NEW known_bad case first.
 
 ## Argument-contract bugs (silent no-ops via the runner)
@@ -58,3 +59,26 @@ path that works today, so fixing any of these needs a NEW known_bad case first.
 - `detect_status_fallthrough.sh` spawns `tr`/`wc` per line (slow on git-bash).
 - `detect_flag_priority_order.sh` is enumerate-only: any function with two
   early-return flag checks trips it, by design.
+
+## Carried into the V ports (noted by the porting pass)
+
+- `detect_struct_wrapped_resource_leak`: FIXED in the port only: `$2` was the
+  resource regex, so through the runner the base-copy path became the regex and
+  the detector was always clean. The port ignores a `$2` that is an existing path.
+- `detect_info_leak`: the `log\.` alternative must be directly followed by `(`,
+  so `log.info(...)` is never flagged.
+- `detect_settings_arm_parity`, `detect_flag_priority_order`,
+  `detect_locally_reset_consumers`, `detect_fmu_scope` (and siblings): only
+  column-0 `fn ` headers are recognised, so `pub fn` is invisible or mis-attributed.
+- `detect_goaway_wmu_serialize`, `detect_settings_arm_parity`, `detect_pool_*`:
+  braces inside strings and comments count toward depth.
+- `detect_h2conn_response_parity`, `detect_h2conn_1xx_end_stream`,
+  `detect_hpack_skip_on_half_closed`: satisfied by the presence of a token
+  anywhere in the file, a comment included.
+- `detect_status_fallthrough`, `detect_missing_fcv_broadcast`: an unreadable
+  file exits 1 (reads as "bug present"); siblings exit 2 or SKIP with 0.
+- `detect_sibling_arms` (port of the .ps1): PowerShell `-match` was a
+  case-insensitive .NET regex; the port matches a metacharacter-free pattern as
+  a case-insensitive substring and anything else with a small ERE subset.
+- The V `regex` module could not be trusted for grouped alternations
+  (`^(a|b)\.v$` never matched), so no detector and not the runner manifest uses it.

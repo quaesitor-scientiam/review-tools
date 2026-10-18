@@ -9,9 +9,9 @@ WSL and macOS. Git is the sync mechanism; nothing is copied by hand.
 | Path | Contents |
 | --- | --- |
 | `skills/vreview/` | The `/vreview` review process (SKILL.md) |
-| `skills/code-review/` | ~50 `detect_*.sh` mechanical detectors, `detect_sibling_arms.ps1`, `run_detectors.sh` (batch runner + manifest), H2/QUIC conformance matrices, `rfc-texts/` |
+| `skills/code-review/` | `run_detectors.sh` (thin bash runner kept for WSL/macOS habit; same manifest), H2/QUIC conformance matrices, `rfc-texts/`. The shell detectors were retired once their V ports passed the same fixtures |
 | `skills/phase-r/`, `skills/codex-respond/`, `skills/luna-respond/`, `skills/adversarial-review/` | Companion skills |
-| `detectors/` | V ports of the detectors (`detect_*.v`), one program each, same `<file> <base_copy_or_empty>` contract; the runner prefers a port over its `.sh` twin when a V compiler is available |
+| `detectors/` | The detectors, one V program each (`detect_*.v`, same `<file> <base_copy_or_empty>` contract), and `run_detectors.v`, the batch runner: computes targets and base revision with git, compiles the detectors once into a hash-keyed cache under the OS temp dir, dispatches by a basename manifest. No bash needed |
 | `hooks/` | `hooks.json` (plugin hook wiring), `require_code_review.sh` (commit gate), `check_powershell_parse.ps1`, `check_ps1_file_parse.ps1` (reference copies, wired globally) |
 | `reference/` | `code-review-reference.html` quick reference and its `code-review-misses-data.js` miss corpus |
 

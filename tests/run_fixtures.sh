@@ -28,8 +28,8 @@ here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/.." && pwd)"
 detdir="$root/skills/code-review"
 timeout_s="${FIXTURE_TIMEOUT:-60}"
-work="${FIXTURE_WORK:-$here/_work}"
-rm -rf "$work"; mkdir -p "$work"
+work="${FIXTURE_WORK:-$(mktemp -d "${TMPDIR:-/tmp}/fixtures.XXXXXX")}"
+mkdir -p "$work"
 
 pwsh_bin=""
 command -v pwsh >/dev/null 2>&1 && pwsh_bin="pwsh"
@@ -175,7 +175,7 @@ done
 
 # ---- coverage: every detector on disk is fixtured or explicitly excused --------
 if [ "$check_coverage" -eq 1 ]; then
-    for script in "$detdir"/detect_*.sh "$detdir"/detect_*.ps1; do
+    for script in "$detdir"/detect_*.sh "$detdir"/detect_*.ps1 "$root"/detectors/detect_*.v; do
         [ -f "$script" ] || continue
         name="$(basename "$script")"; stem="${name%.*}"
         if [ ! -d "$here/$stem" ] && ! grep -qF "| \`$name\` |" "$here/UNFIXTURED.md" 2>/dev/null; then
@@ -187,11 +187,11 @@ fi
 
 # ---- no-git gate: detectors must not call git (the runner owns git) ---------
 if [ "$check_coverage" -eq 1 ]; then
-    for script in "$detdir"/detect_*.sh "$detdir"/detect_*.ps1; do
+    for script in "$detdir"/detect_*.sh "$detdir"/detect_*.ps1 "$root"/detectors/detect_*.v; do
         [ -f "$script" ] || continue
-        if grep -qE '^[^#]*\bgit\b' "$script"; then
+        if grep -qE '^[^#/]*\bgit\b' "$script"; then
             o="$(basename "$script")"
-            echo "  [FAIL] $o: calls git (run_detectors.sh owns all git access)"
+            echo "  [FAIL] $o: calls git (the runner owns all git access)"
             fail=$((fail+1)); failures+=("$o: calls git")
         fi
     done
@@ -204,7 +204,7 @@ fi
 smoke() { # $1=label $2=expected rc $3=regex the output must match, rest=runner args
     local label="$1" want="$2" re="$3"; shift 3
     local out rc
-    out="$(cd "$r" && unset GIT_DIR GIT_WORK_TREE && timeout "$timeout_s" bash "$detdir/run_detectors.sh" "$@" 2>&1)"; rc=$?
+    out="$(cd "$r" && unset GIT_DIR GIT_WORK_TREE && timeout "$timeout_s" "${runner[@]}" "$@" 2>&1)"; rc=$?
     if [ "$rc" -eq "$want" ] && printf '%s\n' "$out" | grep -qE -- "$re"; then
         pass=$((pass+1)); [ -n "${VERBOSE:-}" ] && echo "  [ OK ] runner-smoke/$label (exit $rc)"
     else
@@ -222,9 +222,19 @@ if [ "$check_coverage" -eq 1 ]; then
          && git checkout -q -b feature \
          && cp "$here/detect_lenient_parse/known_bad/unguarded/parse.v" vlib/x/parse.v \
          && git add -A && git -c user.name=f -c user.email=f@x -c commit.gpgsign=false commit -q -m feature ); then
-        smoke no-arg-flags-changed-file 1 'FLAG\] detect_lenient_parse'
-        smoke at-master-passes 0 '@ master' --at master vlib/x/parse.v
-        smoke normalised-path 1 'target: vlib/x/parse\.v' "vlib\\x\\parse.v"$'\r'
+        # Both runners: the shell one, and the V one compiled once (when V is available).
+        runner=(bash "$detdir/run_detectors.sh")
+        smoke sh/no-arg-flags-changed-file 1 'FLAG\] detect_lenient_parse'
+        smoke sh/at-master-passes 0 '@ master' --at master vlib/x/parse.v
+        smoke sh/normalised-path 1 'target: vlib/x/parse\.v' "vlib\\x\\parse.v"$'\r'
+        if [ -n "$vexe" ] && "$vexe" -o "$(to_native "$work/bin/run_detectors")" "$(to_native "$root/detectors/run_detectors.v")" >/dev/null 2>&1; then
+            runner=("$work/bin/run_detectors")
+            smoke v/no-arg-flags-changed-file 1 'FLAG\] detect_lenient_parse'
+            smoke v/at-master-passes 0 '@ master' --at master vlib/x/parse.v
+            smoke v/normalised-path 1 'target: vlib/x/parse\.v' "vlib\\x\\parse.v"$'\r'
+        else
+            echo "  [SKIP] runner-smoke/v: no V compiler or run_detectors.v did not compile"; skip=$((skip+1))
+        fi
     else
         echo "  [FAIL] runner-smoke: could not build repo"; fail=$((fail+1)); failures+=("runner-smoke: repo")
     fi
