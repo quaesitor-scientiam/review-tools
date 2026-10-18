@@ -68,11 +68,22 @@ deny() {
 #   - else the latest commit touching skills/ is newer than the latest commit
 #     touching reference/ -> stale.
 # Outside a git checkout (plain copy of the plugin) it falls back to mtimes.
+#
+# Scope: only commits/pushes made INSIDE the plugin repo are gated on this. The
+# skills now have their own commits, so that is where "skill changed, HTML not"
+# is caught; gating every other repo on the plugin's working-tree state blocked
+# an unrelated vlang push the first day (2026-10-18) while the plugin was being
+# edited. A plain copy of the plugin (no git) keeps the old everywhere-mtime rule,
+# since it has no commit of its own to gate.
 html="$plugin_root/reference/code-review-reference.html"
 misses="${CODE_REVIEW_MISSES_MD:-$HOME/.claude/projects/S--repo-vlang/memory/code-review-misses.md}"
-if [ -f "$html" ]; then
+plugin_is_git=0
+git -C "$plugin_root" rev-parse --is-inside-work-tree >/dev/null 2>&1 && plugin_is_git=1
+same_repo=0
+[ "$(cd "$plugin_root" && pwd -P)" = "$(cd "$repo_root" && pwd -P)" ] && same_repo=1
+if [ -f "$html" ] && { [ "$plugin_is_git" -eq 0 ] || [ "$same_repo" -eq 1 ]; }; then
   stale=""
-  if git -C "$plugin_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if [ "$plugin_is_git" -eq 1 ]; then
     dirty_src="$(git -C "$plugin_root" status --porcelain -- skills 2>/dev/null | head -1)"
     dirty_ref="$(git -C "$plugin_root" status --porcelain -- reference 2>/dev/null | head -1)"
     if [ -n "$dirty_src" ] && [ -z "$dirty_ref" ]; then
