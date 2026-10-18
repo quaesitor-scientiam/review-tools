@@ -1,0 +1,4 @@
+# Everything LF so scripts and docs read identically under WSL, macOS and git-bash.
+* text=auto eol=lf
+*.html -text
+*.txt -text
