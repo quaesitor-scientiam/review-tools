@@ -11,8 +11,14 @@ WSL and macOS. Git is the sync mechanism; nothing is copied by hand.
 | `skills/vreview/` | The `/vreview` review process (SKILL.md) |
 | `skills/code-review/` | ~50 `detect_*.sh` mechanical detectors, `detect_sibling_arms.ps1`, `run_detectors.sh` (batch runner + manifest), H2/QUIC conformance matrices, `rfc-texts/` |
 | `skills/phase-r/`, `skills/codex-respond/`, `skills/luna-respond/`, `skills/adversarial-review/` | Companion skills |
-| `hooks/` | `require_code_review.sh` (commit gate), `check_powershell_parse.ps1`, `check_ps1_file_parse.ps1`, `sync_skills.sh` (legacy Mac/Windows mtime sync, retired in Step 3) |
+| `hooks/` | `hooks.json` (plugin hook wiring), `require_code_review.sh` (commit gate), `check_powershell_parse.ps1`, `check_ps1_file_parse.ps1` (reference copies, wired globally) |
 | `reference/` | `code-review-reference.html` quick reference and its `code-review-misses-data.js` miss corpus |
+
+## Install and update
+
+See [MIGRATION.md](MIGRATION.md). Short form: clone, `claude plugin marketplace add <clone>`,
+`claude plugin install review-tools@review-tools-local --scope user`; update with `git pull`.
+Run the detector fixture suite with `bash tests/run_fixtures.sh` (see `tests/README.md`).
 
 ## History
 

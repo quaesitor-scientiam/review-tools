@@ -202,55 +202,11 @@ summary in the response is enough — this skill doesn't mandate a specific
 output format beyond "confirmed findings only, clearly separated from
 refuted/unconfirmed ones."
 
-## Maintenance — propagating this skill between the Mac and the Windows box
+## Maintenance — where this skill lives
 
-This skill lives in **two places per machine**: repo-local
-`<repo>/.claude/skills/adversarial-review/` and global
-`~/.claude/skills/adversarial-review/`. `.claude/` is gitignored in vlang, so
-**git does not carry this skill between machines** — the Mac's two copies and
-the Windows box's two copies are four independent files.
-`.claude/hooks/sync_skills.sh` (Mac commit gate; has a `sync_one
-adversarial-review` line) only reconciles the two copies *on the machine it
-runs on*. Nothing reconciles across machines. See the
-`vreview-global-repo-sync-2026-08-27` memory for the full history.
-
-**Transport = the shared SSData volume**, not the network: Mac `/Volumes/SSData`
-is the same disk as Windows `S:\`. So from the Mac:
-
-- Windows **repo-local** `S:\repo\vlang\.claude\skills\` is directly writable
-  as `/Volumes/SSData/repo/vlang/.claude/skills/` — just `cp -R` into it.
-- Windows **global** `C:\Users\john3\.claude\skills\` is on `C:`, not on the
-  shared volume, so it needs a step run *on Windows*.
-
-Mac → Windows:
-
-1. On the Mac, write the Windows repo-local copy and refresh the staging drop:
-   ```bash
-   cp -R ~/.claude/skills/adversarial-review \
-         /Volumes/SSData/repo/vlang/.claude/skills/
-   rm -rf /Volumes/SSData/claude-skill-sync/payload/adversarial-review
-   cp -R ~/.claude/skills/adversarial-review \
-         /Volumes/SSData/claude-skill-sync/payload/adversarial-review
-   ```
-2. On Windows, run the self-contained installer in that staging folder
-   (`S:\claude-skill-sync\`) — double-click `install-claude-skills.bat`, or:
-   ```powershell
-   pwsh -NoProfile -ExecutionPolicy Bypass -File S:\claude-skill-sync\install-claude-skills.ps1
-   ```
-   It copies every `payload\<name>\` into **both** Windows skill roots
-   (`%USERPROFILE%\.claude\skills\` and `S:\repo\vlang\.claude\skills\`) and
-   bumps mtimes. It does **not** call `sync_skills.sh` — the Windows
-   `S:\repo\vlang\.claude\` checkout is stale and does not have that hook yet.
-   Restart Claude Code so it re-scans skills.
-
-Windows → Mac is the mirror image: from the Mac, `cp -R` the Windows copy at
-`/Volumes/SSData/repo/vlang/.claude/skills/adversarial-review` onto
-`~/.claude/skills/adversarial-review`, then let the Mac commit gate's
-`sync_skills.sh` (or `bash <repo>/.claude/hooks/sync_skills.sh`) reconcile the
-Mac repo-local copy.
-
-Same procedure for the other skills — `vreview`, `phase-r`, `codex-respond`,
-`luna-respond` are one `SKILL.md` each, `code-review/` is a whole directory;
-add any of them under `payload/` to carry several at once. (`luna-respond`
-has no `sync_one` line in the Mac `sync_skills.sh`; the Windows installer
-copies it to both roots directly regardless.)
+This skill ships in the `review-tools` plugin (one git repository, installed at
+user scope on every machine). There is exactly one copy per machine, the clone;
+`git pull` / `git push` is the sync between the Mac, WSL and the Windows box.
+Edit the skill in the clone, commit, push; the other machine pulls. Nothing is
+copied through `/Volumes/SSData`, no staging payload, no `sync_skills.sh`. See
+`MIGRATION.md` at the plugin root for install and update commands.
