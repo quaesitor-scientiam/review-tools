@@ -128,7 +128,7 @@ delete the other once known:
 ## Phase 8 — Bookkeeping (same session, unprompted)
 
 - Miss-corpus rows in `code-review-misses.md` / the reference HTML's data
-  file (`C:\Users\john3\Documents\code-review-misses-data.js`) — the corpus
+  file (`${CLAUDE_PLUGIN_ROOT}/reference/code-review-misses-data.js`) — the corpus
   has no separate structured `reviewer`/`source` field today (Codex vs.
   Copilot attribution lives in the free-text narrative); follow the same
   convention and name "GPT-5.6 Luna" in the row's text.

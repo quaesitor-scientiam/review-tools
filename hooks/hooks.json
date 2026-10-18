@@ -1,0 +1,18 @@
+{
+  "description": "review-tools commit gate: blocks git commit/push until /vreview has recorded a marker for the current diff and the HTML reference is in sync.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^(Bash|PowerShell)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}\"/hooks/require_code_review.sh",
+            "timeout": 60,
+            "statusMessage": "review-tools: checking commit gate..."
+          }
+        ]
+      }
+    ]
+  }
+}

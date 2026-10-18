@@ -1,0 +1,13 @@
+{
+  "name": "review-tools-local",
+  "owner": {
+    "name": "Richard Wheeler"
+  },
+  "plugins": [
+    {
+      "name": "review-tools",
+      "source": "./",
+      "description": "vlang code-review tooling (vreview, detectors, Phase-R, commit gate)."
+    }
+  ]
+}

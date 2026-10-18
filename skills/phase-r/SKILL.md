@@ -80,13 +80,13 @@ that passes proves nothing. The user has corrected this violation three times
 8. **Log it** — all of, in the same session:
    - corpus row in memory `code-review-misses.md` (class, reviewed commit,
      detector/check, failure narrative);
-   - Angle bullet in `.claude/skills/vreview/SKILL.md` if the class is new;
-   - mechanical detector in `.claude/skills/code-review/` if mechanizable
+   - Angle bullet in `${CLAUDE_PLUGIN_ROOT}/skills/vreview/SKILL.md` if the class is new;
+   - mechanical detector in `${CLAUDE_PLUGIN_ROOT}/skills/code-review/` if mechanizable
      (verify: exit 1 on buggy rev, exit 0 on fixed tree) + add it to
      `run_detectors.sh`'s manifest — or the non-detector remediation from
      step 3 (matrix row, artifact/table column, checklist rule, documented
      limitation) when a detector doesn't fit;
-   - sync `S:\Code Review\code-review-reference.html`
+   - sync `${CLAUDE_PLUGIN_ROOT}/reference/code-review-reference.html`
      ([[feedback_update_code_review_html]]).
 
 Phase R alone does NOT satisfy the commit gate — run the full `/vreview`

@@ -1,0 +1,9 @@
+{
+  "name": "review-tools",
+  "version": "0.1.0",
+  "description": "vlang code-review tooling: /vreview process, ~50 mechanical detectors, Phase-R, Codex/Luna response loops, adversarial review, and the commit gate hook.",
+  "author": {
+    "name": "Richard Wheeler"
+  },
+  "keywords": ["vlang", "code-review", "detectors", "http2", "quic"]
+}
