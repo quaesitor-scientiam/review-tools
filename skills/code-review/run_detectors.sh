@@ -42,6 +42,8 @@
 
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
+plugin_root="$(cd "$here/../.." && pwd)"
+vdet_dir="$plugin_root/detectors"
 
 # ---- options ---------------------------------------------------------------
 base_rev=""
@@ -171,6 +173,45 @@ if [ -n "$base_rev" ]; then
 fi
 cd "$scan_root" || exit 2
 
+# ---- implementation choice: V port or shell script --------------------------
+# Each detector in the manifest is a stem; the runner prefers the compiled V port
+# at $plugin_root/detectors/<stem>.v when a V compiler is available and falls
+# back to skills/code-review/<stem>.sh. DETECT_IMPL=sh forces the scripts,
+# DETECT_IMPL=v forces the ports (a missing port is then an error). DETECT_V
+# names the compiler; otherwise the target repo's own ./v, then `v` on PATH.
+impl_mode="${DETECT_IMPL:-auto}"
+vexe="${DETECT_V:-}"
+if [ -z "$vexe" ] && [ "$impl_mode" != sh ]; then
+    # A Windows v.exe is only usable from an MSYS shell (git-bash); under WSL
+    # it would run through interop with Linux paths and fail every compile.
+    case "$(uname -s 2>/dev/null)" in
+        MINGW*|MSYS*|CYGWIN*) cands=("$repo_root/v.exe" "$repo_root/v") ;;
+        *) cands=("$repo_root/v") ;;
+    esac
+    for c in "${cands[@]}"; do [ -x "$c" ] && { vexe="$c"; break; }; done
+    [ -z "$vexe" ] && command -v v >/dev/null 2>&1 && vexe="v"
+fi
+to_native() { # path -> what a Windows v.exe expects (git-bash only)
+    case "$vexe" in *.exe) command -v cygpath >/dev/null 2>&1 && { cygpath -w "$1"; return; } ;; esac
+    printf '%s' "$1"
+}
+mkdir -p "$tmp/bin"
+declare -A vbin=()
+if [ "$impl_mode" != sh ] && [ -n "$vexe" ]; then
+    for src in "$vdet_dir"/detect_*.v; do
+        [ -f "$src" ] || continue
+        stem="$(basename "${src%.v}")"
+        if "$vexe" -o "$(to_native "$tmp/bin/$stem")" "$(to_native "$src")" >/dev/null 2>&1; then
+            vbin["$stem"]="$tmp/bin/$stem"
+        else
+            echo "run_detectors: $stem.v failed to compile; using the shell version" >&2
+        fi
+    done
+elif [ "$impl_mode" = v ]; then
+    echo "run_detectors: DETECT_IMPL=v but no V compiler found (set DETECT_V)" >&2
+    exit 2
+fi
+
 # ---- manifest: detector -> basename regex of files it applies to ------------
 # A detector runs once per matching target file: `bash detect_x.sh <file>
 # <base_copy_or_empty>` (detectors with a hardcoded target ignore the args,
@@ -260,8 +301,17 @@ for f in "${existing[@]}"; do
         [ -f "$here/$det" ] || continue
         if echo "$bn" | grep -qE "${manifest[$det]}"; then
             skipped_all=0
-            out="$(bash "$here/$det" "$f" "${base_copy[$f]:-}" 2>&1)"
-            rc=$?
+            stem="${det%.sh}"
+            if [ -n "${vbin[$stem]:-}" ]; then
+                out="$("${vbin[$stem]}" "$f" "${base_copy[$f]:-}" 2>&1)"
+                rc=$?
+                det="$stem.v"
+            elif [ "$impl_mode" = v ]; then
+                out="no V port for $stem"; rc=2
+            else
+                out="$(bash "$here/$det" "$f" "${base_copy[$f]:-}" 2>&1)"
+                rc=$?
+            fi
             ran=$((ran + 1))
             last="$(printf '%s\n' "$out" | grep -v '^\s*$' | tail -1)"
             if [ "$rc" -eq 0 ]; then

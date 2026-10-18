@@ -49,6 +49,11 @@ added without a fixture or a written reason; for any detector that calls `git`
 itself on a throwaway repo (no-arg change detection, `--at <rev>`, path
 normalisation).
 
+A detector that also has a V port in `detectors/<name>.v` is tested twice: the
+`.sh` script and the port compiled once per run (cases are labelled `[v]`). The
+compiler is `$DETECT_V` or `v` on PATH; without one the `[v]` cases are skipped.
+A port is only promoted (its `.sh` deleted) once both pass the same cases.
+
 ## Writing a fixture
 
 Read the detector's header comment for the exact pattern it greps. The known_bad

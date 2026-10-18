@@ -52,6 +52,8 @@ in-place local plugin a `git pull` plus `/reload-plugins` is the whole update.
 | `.claude/hooks/sync_skills.sh` | deleted; `git pull` |
 | `S:\Code Review\code-review-reference.html` + `code-review-misses-data.js` | `reference/` in this repo |
 | `bash .claude/skills/code-review/run_detectors.sh` | `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/run_detectors.sh` |
+| `detect_x.sh <file> <gitrev>` | `run_detectors.sh --at <rev> <file>` (detectors never call git) |
+| bash-only detectors | `detectors/*.v` ports, run natively with the target repo's `./v`; `DETECT_IMPL=sh` forces the scripts |
 
 The commit gate still writes its marker to `$(git rev-parse --absolute-git-dir)/
 .last_code_review` of the repo being committed, so it works from any worktree. Its

@@ -35,16 +35,24 @@ pwsh_bin=""
 command -v pwsh >/dev/null 2>&1 && pwsh_bin="pwsh"
 [ -z "$pwsh_bin" ] && command -v pwsh.exe >/dev/null 2>&1 && pwsh_bin="pwsh.exe"
 
+# V compiler for the detectors/*.v ports: $DETECT_V, else `v` on PATH. Without
+# one the .v implementations are reported as skipped (the .sh ones still run).
+vexe="${DETECT_V:-}"
+[ -z "$vexe" ] && command -v v >/dev/null 2>&1 && vexe="v"
+mkdir -p "$work/bin"
+to_native() { # path -> what a Windows v.exe expects (git-bash only)
+    case "$vexe" in *.exe) command -v cygpath >/dev/null 2>&1 && { cygpath -w "$1"; return; } ;; esac
+    printf '%s' "$1"
+}
+
 pass=0; fail=0; skip=0; failures=()
 
 control_files='! -name args ! -name needs_git ! -name expect_rc ! -name expect_out'
 
-run_case() { # $1=detector-name $2=known_bad|known_good $3=case-dir
-    local det="$1" kind="$2" case="$3" name
+run_case() { # $1=detector-name $2=known_bad|known_good $3=case-dir $4=implementation (script or compiled binary)
+    local det="$1" kind="$2" case="$3" script="$4" name
     name="$det/$kind/$(basename "$case")"
-    local script=""
-    for ext in sh ps1; do [ -f "$detdir/$det.$ext" ] && script="$detdir/$det.$ext"; done
-    if [ -z "$script" ]; then failures+=("$name: detector script not found"); fail=$((fail+1)); return; fi
+    case "$script" in *.sh|*.ps1) ;; *) name="$name [v]" ;; esac
 
     local expect_rc=1; [ "$kind" = known_good ] && expect_rc=0
     [ -f "$case/expect_rc" ] && expect_rc="$(tr -d '[:space:]' < "$case/expect_rc")"
@@ -95,8 +103,10 @@ run_case() { # $1=detector-name $2=known_bad|known_good $3=case-dir
         local ps_script="$script"
         case "$pwsh_bin" in *.exe) command -v wslpath >/dev/null 2>&1 && ps_script="$(wslpath -w "$script")" ;; esac
         out="$(cd "$cwd" && unset GIT_DIR GIT_WORK_TREE && timeout "$timeout_s" "$pwsh_bin" -NoProfile -File "$ps_script" "${args[@]}" 2>&1)"; rc=$? ;;
-    *)
+    *.sh)
         out="$(cd "$cwd" && unset GIT_DIR GIT_WORK_TREE && timeout "$timeout_s" bash "$script" "${args[@]}" 2>&1)"; rc=$? ;;
+    *)  # compiled V detector
+        out="$(cd "$cwd" && unset GIT_DIR GIT_WORK_TREE && timeout "$timeout_s" "$script" "${args[@]}" 2>&1)"; rc=$? ;;
     esac
 
     local ok=1 why=""
@@ -131,14 +141,33 @@ for det in "${dets[@]}"; do
     det="${det%/}"; det="${det%.sh}"; det="${det%.ps1}"
     d="$here/$det"
     if [ ! -d "$d" ]; then echo "  [FAIL] $det: no tests/$det/ directory"; fail=$((fail+1)); failures+=("$det: no fixture dir"); continue; fi
+    # Implementations: the shell/pwsh script, plus the V port compiled once.
+    impls=()
+    for ext in sh ps1; do [ -f "$detdir/$det.$ext" ] && impls+=("$detdir/$det.$ext"); done
+    if [ -f "$root/detectors/$det.v" ]; then
+        if [ -n "$vexe" ]; then
+            if cerr="$("$vexe" -o "$(to_native "$work/bin/$det")" "$(to_native "$root/detectors/$det.v")" 2>&1)"; then
+                impls+=("$work/bin/$det")
+            else
+                echo "  [FAIL] $det [v]: does not compile"; printf '%s
+' "$cerr" | sed 's/^/         | /' | head -15
+                fail=$((fail+1)); failures+=("$det [v]: compile error")
+            fi
+        else
+            echo "  [SKIP] $det [v]: no V compiler (set DETECT_V or put v on PATH)"; skip=$((skip+1))
+        fi
+    fi
+    if [ "${#impls[@]}" -eq 0 ]; then echo "  [FAIL] $det: no implementation found"; fail=$((fail+1)); failures+=("$det: no implementation"); continue; fi
     nbad=0
-    for kind in known_bad known_good; do
-        [ -d "$d/$kind" ] || continue
-        for case in "$d/$kind"/*/; do
-            [ -d "$case" ] || continue
-            case="${case%/}"
-            [ "$kind" = known_bad ] && nbad=$((nbad+1))
-            run_case "$det" "$kind" "$case"
+    for impl in "${impls[@]}"; do
+        for kind in known_bad known_good; do
+            [ -d "$d/$kind" ] || continue
+            for case in "$d/$kind"/*/; do
+                [ -d "$case" ] || continue
+                case="${case%/}"
+                [ "$kind" = known_bad ] && nbad=$((nbad+1))
+                run_case "$det" "$kind" "$case" "$impl"
+            done
         done
     done
     if [ "$nbad" -eq 0 ]; then echo "  [FAIL] $det: no known_bad case (a no-op detector would pass)"; fail=$((fail+1)); failures+=("$det: no known_bad case"); fi

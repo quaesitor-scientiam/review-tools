@@ -25,6 +25,10 @@ root first: `wsl -e bash -lc 'root=$(wslpath -u "<expanded root>"); cd /mnt/s/re
 The commit gate (`${CLAUDE_PLUGIN_ROOT}/hooks/require_code_review.sh`) and the HTML
 reference (`${CLAUDE_PLUGIN_ROOT}/reference/code-review-reference.html`) live in the
 same plugin; nothing is read from the target repo's `.claude/` directory any more.
+Detectors ported to V live in `${CLAUDE_PLUGIN_ROOT}/detectors/*.v`; `run_detectors.sh`
+compiles them once per run with the target repo's `./v` (or `v` on PATH, or `$DETECT_V`)
+and prefers them over the `.sh` twins (`DETECT_IMPL=sh|v` forces one side). Past
+revisions: `run_detectors.sh --at <rev> <file>`; detectors themselves never call git.
 
 ## Input
 $ARGUMENTS (optional: PR number, branch name, --fix, --comment, effort level,
