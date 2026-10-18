@@ -1,0 +1,52 @@
+# Detector fixture suite
+
+`run_fixtures.sh` is the Phase-R gate for every `detect_*.sh` / `detect_*.ps1` in
+`skills/code-review/`: a detector only counts as working if it exits 1 on a
+known-bad input and 0 on a known-good one. Replacing a detector with a no-op
+makes the suite fail.
+
+## Layout
+
+```
+tests/<detector-name>/known_bad/<case>/...   expected exit 1
+tests/<detector-name>/known_good/<case>/...  expected exit 0
+```
+
+A case directory is a miniature working tree. The runner `cd`s into it and runs
+the detector with each regular file in the case as an argument (sorted, relative
+paths). Detectors whose target path is hardcoded (e.g. `vlib/net/http/h2_server.v`)
+get the file at that relative path inside the case and an empty `args` file.
+
+Control files inside a case (all optional):
+
+| File | Meaning |
+| --- | --- |
+| `args` | one argument per line; an empty file means no arguments |
+| `needs_git` | build a throwaway repo: `master` has an empty baseline commit, `feature` adds the case files (for detectors that call `git merge-base`/`diff`/`show`) |
+| `expect_rc` | override the expected exit code |
+| `expect_out` | extended regex the output must match (known_bad) / must not match (known_good); for enumerate-and-verify tools that always exit 0 |
+
+## Running
+
+```bash
+bash tests/run_fixtures.sh                      # everything + coverage check
+bash tests/run_fixtures.sh detect_lenient_parse # one detector
+VERBOSE=1 bash tests/run_fixtures.sh            # print passing cases too
+```
+
+Runs under WSL, macOS bash and git-bash (`timeout` and `git` required; `pwsh`
+optional: `.ps1` detector cases are skipped without it). On Windows prefer WSL,
+since several detectors spawn per-line subshells that are pathologically slow on
+git-bash: `wsl -e bash -lc 'cd /mnt/s/repo/review-tools && bash tests/run_fixtures.sh'`.
+
+With no arguments the runner also fails for any detector on disk that has neither a
+`tests/<name>/` directory nor a row in `UNFIXTURED.md`, so a new detector cannot be
+added without a fixture or a written reason.
+
+## Writing a fixture
+
+Read the detector's header comment for the exact pattern it greps. The known_bad
+case should be the smallest V file that trips that pattern; the known_good case
+should be the same file with the bug fixed the way the detector expects (the cap,
+the guard, the `.clone()`), not a file the detector cannot see at all. A
+known_good that is merely "unrelated code" proves nothing about the fix path.
