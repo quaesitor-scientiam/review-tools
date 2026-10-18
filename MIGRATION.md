@@ -13,7 +13,7 @@ same plugin as the main checkout because the plugin is user-scoped, not per-chec
 ## Install (any machine)
 
 ```bash
-git clone <remote-or-path> ~/repo/review-tools        # Mac / WSL / Linux
+git clone https://github.com/quaesitor-scientiam/review-tools.git ~/repo/review-tools   # Mac / WSL / Linux (private repo)
 claude plugin marketplace add ~/repo/review-tools
 claude plugin install review-tools@review-tools-local --scope user
 ```
