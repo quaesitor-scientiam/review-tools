@@ -1415,6 +1415,18 @@ declared lock. Pay special attention to:
   accumulator, grep the same struct's OTHER fields for the same growth pattern —
   don't stop at the one the finding named, especially if a neighbor has its own
   confident-sounding comment explaining why it's fine.
+  **A `NO CAP FOUND` flag is cleared only by a bound on EVERY path, never by a
+  partial cap or an in-code waiver.** Two dismissals that are both findings:
+  (1) a cap keyed on a peer-chosen discriminator (frame type, stream type,
+  setting ID) must name a bound for every value, unknown/grease values
+  included; a cap on DATA/HEADERS only leaves every other type unbounded.
+  (2) a comment such as "deliberately unbounded for v1" on a map keyed by
+  pre-authentication input (source address, unvalidated connection ID) is a
+  finding to report, not a waiver to accept. Missed twice on vlang/v#28164
+  (Codex, reviewed commit `29a933e6c3`, rev 72), with the detector flagging both:
+  `H3FrameDecoder.pending` capped only DATA/HEADERS, so any other frame type
+  declaring a huge length buffered every byte; `H3Server.peer_by_str` stored
+  every datagram's source address before QUIC routing and was never pruned.
 - **A new pool/cache on an existing parent object must inherit ALL of that
   object's public capacity limits, not just its own new map:** when a diff
   adds a second pooled/cached resource alongside an existing one on the same
