@@ -2064,6 +2064,29 @@ Ask, for every file/function touched or newly introduced:
   0) regardless, so the §19.16 validation was fully actionable, deferred
   only because the scope note read as broader than it actually was.
 
+- **Does every cache key cover every input that can change the cached
+  output?** A key over an external tool's output (a precompiled header, an
+  object, a probe result) that names the tool and its argument vector still
+  leaves out what the tool reads from its environment: `CPATH`,
+  `C_INCLUDE_PATH`, `INCLUDE`, `PATH` (which picks the toolchain and the
+  headers it brings), and the working directory a relative `-I` resolves
+  against. Enumerate every input of the tool (command line, environment,
+  cwd, the files it reads) and name where each one enters the key, or why
+  it cannot change the output. The sibling is usually another key over the
+  same tool already in the codebase: diff the two input lists. Missed on
+  vlang/v#31581 (medvednikov, review 5725704734, comment 4433887205):
+  `v3_windows_pch_key(identity, args)` hashed the compiler identity, the
+  header text and the arguments, while the sibling `v3_include_search`
+  already keyed on the include environment. Switching `CPATH` from `sdk1`
+  to `sdk2` reused the old PCH: a fresh unit emitted `ret i32 101` where a
+  plain compile gave `102`. Run the mechanical enumerate-and-verify check
+  on every changed file: `detect_cache_key_environment.v` (flags a
+  `*_key`/`*_identity`/`*_signature` function that takes an argument vector
+  and names no `getenv`/`environ`/`environment`/`getwd`; exit 1 on
+  `035f15b229`'s `windows_pch.v`, 0 on `67dbd968cd`'s). A flag is a
+  candidate, not a bug: confirm it by naming where each environment input
+  enters, for example a cache directory that already carries it.
+
 **Artifact: absence-search checklist.** One line per question above: the
 requirement/check/path considered, whether it's present (`file:line`) or a
 GAP, and — if a GAP — whether it was fixed this review or logged. State

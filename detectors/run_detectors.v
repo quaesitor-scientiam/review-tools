@@ -47,6 +47,7 @@ const manifest = {
 	'detect_unshared_getter_return':                   '*.v'
 	'detect_unbounded_accum':                          '*.v'
 	'detect_scheduler_field_coverage':                 '*.v'
+	'detect_cache_key_environment':                    '*.v'
 	'detect_error_scope':                              'h2_*.v'
 	'detect_hpack_decode_scope':                       'h2_*.v'
 	'detect_swallowed_write':                          'h2_*.v'

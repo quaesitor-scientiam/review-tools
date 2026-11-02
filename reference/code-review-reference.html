@@ -116,7 +116,7 @@
 <h1>/code-review Skill Reference</h1>
 <p class="subtitle">Plugin skill <strong>/review-tools:vreview</strong> at <code style="font-size:11px">${CLAUDE_PLUGIN_ROOT}/skills/vreview/SKILL.md</code> (git repo <code style="font-size:11px">S:
 epo
-eview-tools</code>). Detector scripts live at <code style="font-size:11px">${CLAUDE_PLUGIN_ROOT}/detectors/</code>; run them with <code style="font-size:11px">run_detectors.sh</code>. Generated 2026-11-01, rev 73 (see Changelog tab for the full revision-by-revision story). H2 conformance matrix status: server h2spec baseline EMPTY, 146/146 cases pass.</p>
+eview-tools</code>). Detector scripts live at <code style="font-size:11px">${CLAUDE_PLUGIN_ROOT}/detectors/</code>; run them with <code style="font-size:11px">run_detectors.sh</code>. Generated 2026-11-01, rev 74 (see Changelog tab for the full revision-by-revision story). H2 conformance matrix status: server h2spec baseline EMPTY, 146/146 cases pass.</p>
 
 <div class="meta-grid">
   <div class="meta-item"><span class="meta-label">Primary Use</span>Execute a review workflow quickly: scope, derive contracts, fresh-eyes, detectors, scan A-I angles, domain gates, triage, verify, regress.</div>
@@ -1212,6 +1212,17 @@ eview-tools</code>). Detector scripts live at <code style="font-size:11px">${CLA
       <div><span class="miss-badge">Caught: pooled ALPN probe missing the pre-8.1 capability gate (reviewed commit e0368d7a2d, #27712 pullrequestreview-4729311285, discussion 3609206168). Phase-R verified STATICALLY (runtime repro impossible on Win 11, alpn_supported() hard-true): exit 1 on e0368d7a2d in both working-tree and [commit] modes, exit 0 on the fixed tree</span></div>
     </div>
 
+    <div class="detector-row">
+      <div class="det-name">detect_cache_key_environment.v &lt;file&gt; [base]</div>
+      <div class="det-desc">
+        <strong>Finds:</strong> a function named <code>*_key</code>, <code>*_identity</code> or <code>*_signature</code> that takes an argument vector (<code>args []string</code>, <code>flags []string</code>, <code>*_args</code>/<code>*_flags []string</code>) and whose body names no environment input (<code>getenv</code>, <code>environ</code>, <code>environment</code>, <code>getwd</code>).<br>
+        <strong>Why dangerous:</strong> a key over a tool's cached output that names only the tool and its command line reuses the old output when only the environment changed: <code>CPATH</code>, <code>C_INCLUDE_PATH</code>, <code>INCLUDE</code>, <code>PATH</code>, or the working directory a relative <code>-I</code> resolves against. Missed on vlang/v#31581 (medvednikov, review 5725704734): <code>v3_windows_pch_key(identity, args)</code> reused a PCH built with <code>CPATH=sdk1</code> under <code>CPATH=sdk2</code>. Enumerate-and-verify: a flagged key may be correct when its cache directory already carries the environment.<br>
+        <strong>Output:</strong> exit 1 = candidate key functions listed; exit 0 = none.
+      </div>
+      <div class="det-pattern">Scans column-0 <code>fn</code>/<code>pub fn</code> headers (method receivers skipped) to the first line that is exactly <code>}</code>; matches the name suffix and a <code>[]string</code> parameter named <code>args</code>/<code>flags</code>/<code>*_args</code>/<code>*_flags</code>; flags when the body contains none of the environment markers.</div>
+      <div><span class="miss-badge">Caught: PCH key without the include environment (#31581, comment 4433887205). Phase-R verified: exit 1 on 035f15b229's windows_pch.v, exit 0 on 67dbd968cd's. On 67dbd968cd's driver.v it lists 3 candidates (tcc_atomic_object_key, v3_crun_build_identity, v3_cached_object_compile_signature), still to be triaged</span></div>
+    </div>
+
   </div>
 </div>
 
@@ -1279,6 +1290,7 @@ eview-tools</code>). Detector scripts live at <code style="font-size:11px">${CLA
 <div class="tab-content" id="tab-changelog">
   <div class="section">
     <div class="section-title">Revision History</div>
+    <div class="changelog-body"><strong>rev 74</strong> (2026-11-01) &mdash; vlang/v#31581 (medvednikov, review 5725704734): a Windows SDK PCH key covered the compiler and its arguments but not <code>CPATH</code>/<code>C_INCLUDE_PATH</code>, so a changed include environment reused the old PCH. Angle H gains &ldquo;does every cache key cover every input that can change the cached output?&rdquo;. New enumerate-and-verify detector <code>detect_cache_key_environment.v</code> (all <code>*.v</code>), Phase-R verified on <code>035f15b229</code> / <code>67dbd968cd</code>. One Bug Corpus row added.</div>
     <div class="changelog-body"><strong>rev 73</strong> (2026-11-01) &mdash; graphify#149 (unresolved-call fixes, a non-protocol V repo): five adversarial-review rounds confirmed 35 findings after <code>/vreview</code> passes had been reported clean without their Artifacts block (the angle changes below come from the first three rounds, 26 findings). New <strong>Hard rules</strong> at the top of SKILL.md: no artifacts, no pass; never skip a required step without asking the user; strict <code>/vreview</code>-until-clean before <code>/adversarial-review</code> loop. New <strong>Angle J &mdash; Test discrimination</strong> (11 of the 26). Angle A gains &ldquo;a fallback&rsquo;s trigger must encode its case, not a proxy&rdquo;, &ldquo;widening what reaches a permissive tier&rdquo; and &ldquo;a recursive walk calling itself twice on one child is exponential&rdquo;. Angle C gains &ldquo;a changed representation has consumers too&rdquo;. Angle D gains &ldquo;a map keyed by id is per-declaration only when the id is unique for every kind&rdquo; and &ldquo;an inline copy of a shared rule diverges&rdquo;. Angle I gains delegated-guarantee comments, field docs naming consumers, and prose docs. Phase R names the plausible-wrong mutation. Seven Bug Corpus rows added.</div>
     <div class="changelog-body"><strong>rev 72</strong> (2026-10-31) &mdash; vlang/v#28164 Codex round (pullrequestreview-5141091695): three misses logged. Angle F gains &ldquo;a NO-CAP flag is not cleared by a partial cap or an in-code waiver&rdquo; (both <code>H3FrameDecoder.pending</code> and <code>H3Server.peer_by_str</code> were flagged by <code>detect_unbounded_accum</code> and dismissed). <code>quic_conformance_matrix.md</code> gains RFC 9114 &sect;6.1 (client rejects server-initiated bidi streams) and &sect;7.1/&sect;9 (unknown frames skipped, every defined type capped) rows. Three Bug Corpus rows added.</div>
     <div class="changelog-body"><strong>rev 71</strong> (2026-10-18) &mdash; Cutover. The vlang checkout no longer carries any review tooling: the <code>.claude/skills/code-review</code> junction, the repo-local <code>vreview</code>/<code>phase-r</code>/<code>codex-respond</code>/<code>luna-respond</code>/<code>adversarial-review</code> copies, <code>.claude/hooks/</code> and the <code>sync_skills.sh</code> state dir are gone, and so are the global <code>~/.claude/skills</code> copies (every file was byte-compared against the import commit first; the only difference was a stale path in an older repo-local phase-r copy). The plugin is the single source: skills are invoked as <code>/review-tools:vreview</code> etc., the commit gate comes from <code>hooks/hooks.json</code>, and this HTML lives at <code>reference/</code> in the plugin with <code>S:\Code Review\</code> kept only as a read-only mirror. Project memory notes repointed.</div>
@@ -1483,7 +1495,7 @@ function detectorFilterGroups() {
       'detect_tls_accept_send_interruptible', 'detect_tls_read_precheck_poll',
       'detect_vschannel_pooled_alpn_gate', 'detect_bytes_nul_terminator_mismatch'
     ],
-    process: ['run_detectors', 'detect_quic_test_missing_openssl_gate']
+    process: ['run_detectors', 'detect_quic_test_missing_openssl_gate', 'detect_cache_key_environment']
   };
 }
 
