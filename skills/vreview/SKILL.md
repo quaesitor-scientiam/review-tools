@@ -16,6 +16,31 @@ description: >
 disable-model-invocation: false
 ---
 
+## Hard rules — read before anything else
+
+These come from the user after skipped steps cost them heavy token spend (graphify
+PR #149, 2026-11-01). They bind on every machine; they live here, not in local
+memory, because memory does not sync.
+
+1. **No artifacts, no pass.** A `/vreview` run counts as a pass only when its
+   Artifacts block (per-file contract paragraphs, repeat-offender list, new
+   type/function contracts, sibling parity table, test discrimination table, and
+   every other artifact this file requires) is written out in the response, with an
+   explicit "none" / "N/A — reason" where one is empty. Never report "`/vreview`
+   passed" or "clean" for a run that omitted any of it — not to the user, not in a
+   commit message, not in a PR body. On PR #149, passes reported clean without the
+   artifacts let five `/adversarial-review` rounds (~14M subagent tokens) find 35
+   defects; 6 of them were already covered by rules here (the parity table alone
+   would have compared `generated_enum_mod` with `resolve_qualified_callee`).
+2. **Never skip a required step silently — ask first.** If any required step of this
+   skill, of `/adversarial-review`, or of a standing rule (an artifact, a rerun,
+   Phase R, a test) looks unnecessary or too costly, stop and ask the user before
+   skipping it. Do not decide alone.
+3. **Review loop order.** `/vreview` → fix → rerun `/vreview` after EVERY fix round
+   until a pass has no confirmed findings → only then `/adversarial-review` → fix →
+   back to `/vreview`. Repeat until both are clean in the same round. The inline pass
+   is far cheaper; every defect it catches is one the agent swarm need not.
+
 ## Plugin paths
 This skill ships in the `review-tools` plugin (git repo, installed at user scope).
 Every `${CLAUDE_PLUGIN_ROOT}` below is substituted by Claude Code with the plugin's
@@ -600,6 +625,44 @@ platform makes this wrong?
   (word-splitting, then substitution, then Windows `%VAR%` expansion)
   instead of noticing the pattern and switching tools. See
   [[code-review-misses]] (the "third round" row) for the full history.
+- **A fallback/retry's trigger must encode the case it was written for, not a
+  proxy that also matches other inputs.** For every new "if the primary path
+  finds nothing, try X" branch, write down the ONE motivating case, then the
+  trigger predicate as the code states it, then enumerate every OTHER input that
+  satisfies that predicate. Each is a candidate: the fallback now runs for it
+  too, usually through a more permissive path than the primary. Two red flags:
+  (a) the trigger is "primary returned none" plus a property the motivating case
+  merely HAS (the call name contains `__static__`) instead of one only it has
+  (the name came from a selective import); (b) the trigger is a WHOLE-PROGRAM
+  scan standing in for a caller-local fact ("no module anywhere ends with this
+  import name" for "this caller's import names no module") — any unrelated
+  match anywhere flips it. Missed on graphify#149 (adversarial review round 1,
+  2026-11-01): a bare-name retry meant for `import zmod_foo { Foo }` fired for
+  every qualified static call into a module outside the tree, linking
+  `extmod.Config.new()` to an unimported module's `Config.new`; and an
+  unrelated `other/zmod_foo/` directory turned it off, losing a call master
+  resolved. Phase R of the fix only exercised the motivating case.
+- **Widening what reaches a permissive tier is a behavior change for every
+  input newly let through.** When a diff makes MORE inputs reach an existing
+  lenient fallback (a unique-name match, a first-match lookup, a default
+  branch) — by stripping more wrapper layers, admitting more symbol kinds into
+  a candidate table, or loosening a prefix test — list what newly reaches it
+  and ask what the lenient tier does with each. This is the inverse of
+  "impact analysis before narrowing": the new code is correct for its
+  motivating input, and the regression is the lenient tier acting on the
+  others. Missed three times on graphify#149 (round 3): `callee()` stripping
+  every index level let `get().table[0][1](3)` reach the global unique-name
+  tier as a method call `table`; a `starts_with('fn')` gate admitted a global
+  typed `fnv1a.Sum` as callable.
+- **A recursive walk that calls itself twice on the same child is
+  exponential in nesting depth.** In any tree/AST walker, when a new branch
+  re-calls the walker on a child that an earlier line already walked (a
+  "fallback to the else branch" after a loop that already computed it),
+  compute it once. Ask of every recursive call the diff adds: can this node
+  nest inside itself (`$else $if` chains, nested expressions), and does each
+  level call the walker on its child more than once? Missed on graphify#149
+  (round 1): the `$if`-value fallback recomputed `recipe(kids[1])`, doubling
+  the work per `$else $if` level (depth 40: 3.1 s vs 0.34 s once fixed).
 
 ### Angle B — Removed-behavior audit
 For every line the diff **deletes or replaces**: name the invariant it enforced,
@@ -734,6 +797,20 @@ snapshots `resp_headers` once at headers-done, so trailers need a separate
 per-stream `resp_trailers` list flushed into `resp.headers` at stream-end. Gate:
 `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_mux_trailers_preserved.v` (the trailers
 branch must append the decoded fields, not merely set `s.ended`).
+
+**A changed REPRESENTATION has consumers too: every reader that parses the
+value, not just the producer you edited.** The renamed-emitted-symbol rule above
+is one case of a general one. When a diff changes the shape of a value that
+other code later takes apart — an edge's target string (`Kind__static__m`
+becoming `mod.Kind__static__m`), an id format, a key layout, a recipe step —
+grep the RAW shape across the whole tree (`__static__`, `all_before('@')`,
+`split(sep)`), not the function you changed, and confirm each reader handles
+the new form. Readers that branch on the shape (`if to.contains('.')`) are the
+likeliest to silently take a different path. Missed on graphify#149 (round 1,
+two findings): qualifying selective-import static calls changed `Edge.to`, and
+`call_result` (which types `x := Foo.new()`) and `generated_enum_mod` both
+took the qualified path and lost what the bare form had resolved; only the
+resolver the diff was written for got a compensating fallback.
 
 ### Angle D — Full-file holistic (the Codex angle)
 **This angle reads the whole file, not just the diff.** It is the primary fix for
@@ -1039,6 +1116,26 @@ For each touched file, after reading it in full:
   4613845079 (Codex found the locally_reset instance; a human reviewer caught
   that the branch-local fix was still incomplete). Run
   `v run \"${CLAUDE_PLUGIN_ROOT}\"/detectors/detect_orphan_continuation_gate.v`.
+- **A map keyed by id is only per-declaration when the id is unique for EVERY
+  kind that reaches the lookup.** When new code reads an attribute of a
+  candidate through a map keyed by its id (`site_of[c.id].is_main`), find
+  where that map is filled and where ids are de-duplicated, and check the
+  de-duplication covers every kind the new lookup sees. A table that renames
+  colliding functions and types but not constants returns ANOTHER
+  declaration's attribute for a constant, and one that drops colliding ids
+  (re-keying them per file) returns nothing. Read the attribute from the
+  candidate's own record (its file) instead, or use the per-file key. Missed
+  twice on graphify#149: round 2, `find_const` read a module-main status for a
+  const from `site_of[c.id]`, though every file of a directory declaring that
+  const shares the id, so a test could take a `module X` const's recipe;
+  round 3, `resolve_callee` read the same map for a function declared once per
+  build branch, whose id `site_of` keeps only under `site_key(id, file)`.
+- **An inline copy of a shared rule diverges from it.** When new code needs a
+  rule a sibling already states as a function (or that the same diff adds as
+  one), call it rather than re-typing its condition; if it can't be called,
+  every negative half of the copy needs its own test. Missed on graphify#149
+  (round 2): `find_const` re-typed `sees_in_module`'s condition, the copy
+  drifted from it within one commit, and neither negative half was tested.
 
 ### Angle E — Protocol / RFC compliance (H2 and QUIC)
 **Requirements-driven, not diff-driven.** A diff-driven review cannot find a
@@ -2017,11 +2114,70 @@ changes:
   4 of `/codex-respond`) only fires on BEHAVIORAL changes, so a doc-only
   clarification slips past it with no test to catch the resulting
   inconsistency.
+- **A comment that hands a guarantee to another function is a claim about
+  THAT function — read it.** "X stays private (test_private)", "bounded by
+  the caller's cap", "validated upstream" each name a delegate. Open the
+  delegate and confirm it covers every case the new code lets through. Two
+  predicates for one concept (`is_test_file`, any `*_test.*.v`, versus
+  `test_private`, `_test.v` only) are the usual gap. Missed on graphify#149
+  (round 2): `sees_in_module`'s doc said another test's declarations stay
+  private through `test_private`, which does not cover `b_test.c.v`.
+- **A field's doc that names its consumers goes stale when the diff adds
+  one.** When new code starts reading an existing field, grep the field's own
+  doc for "only", "used by", or a named function, and update it. Missed on
+  graphify#149 (round 2): `DeclSite.no_main` still said only a type alias's
+  lookup used it.
+- **Prose docs (README, design notes, changelog lines) state behavior too.**
+  Check each sentence the diff adds against the code's actual condition, word
+  for word: "a `-d` option" for a predicate that also accepts `prod`, `test`
+  and `js` understates it. Missed on graphify#149 (round 3).
 
 **Artifact:** for every doc comment touched or introduced this diff that
 states a parameter's composition or a MUST-order rule, one line: the
 stated contract, and confirmation (or a logged gap) that every real call
-site/existing caller actually satisfies it.
+site/existing caller actually satisfies it. Add one line per delegated
+guarantee (the delegate read, and whether it covers the case) and per field
+or prose doc touched.
+
+### Angle J — Test discrimination (would the tests catch the plausible wrong version?)
+
+**A passing test proves the code does something; it does not prove the test
+can tell the right behavior from the nearest wrong one.** Angles A–I review
+the code. This angle reviews the tests the diff adds or relies on, and it is
+the angle the adversarial review's test lens kept beating `/vreview` on: 11 of
+26 confirmed findings across three rounds of graphify#149 were tests that
+would stay green under a plausible regression. For every behavior the diff
+adds or changes:
+
+- **Both sides of every new gate.** For each new boolean condition (a filter,
+  an admission check, a dedupe), name the input that must pass and the one that
+  must be rejected, and point at the test asserting each. A gate tested only on
+  its passing side survives being replaced by `true`. graphify#149: the global
+  gate (untyped vs typed non-fn), `named_fn_type`'s "resolves to a function"
+  guard, `enum_mods`' de-duplication.
+- **Every clause of a compound condition.** For `a && b && c`, each clause
+  needs a test that fails when that clause ALONE is dropped. graphify#149:
+  `csite.no_main && csite.is_main && is_test_file(file)` had a positive test
+  only, so dropping either of the last two clauses passed everything.
+- **Inputs on which the alternatives differ.** If the code chooses between two
+  branches, results or targets, the fixture must make the wrong choice give a
+  DIFFERENT observable result. graphify#149: the `$if` fallback test's two
+  branches both returned `int`, so taking the wrong branch gave the same edge.
+- **Each branch of each changed lookup.** A function with an unqualified and a
+  qualified path, an exact and a fuzzy match, or a per-file and a per-id key
+  needs a case down each. graphify#149: `zero()` on a qualified flag enum, the
+  exact-vs-reaches tie-break, the per-file site key.
+- **Phase R with the nearest wrong implementation, not only `if false`.**
+  Disabling a fix outright shows the test notices the fix's absence. Also
+  mutate it to the most plausible WRONG version — the old key, the looser
+  prefix, the other branch, a dropped clause — and confirm a test fails for
+  each. A fix that survives "plausible wrong" mutations is pinned; one that
+  only fails `if false` is not.
+
+**Artifact: test discrimination table.** One row per new gate, clause, branch
+or choice: `condition — passing-side test — rejecting-side test (or GAP) —
+plausible-wrong mutation tried — result`. State "no new conditions" explicitly
+when the diff adds none.
 
 ---
 
@@ -2157,7 +2313,10 @@ the review.
      reviewer saw it* — `bash "${CLAUDE_PLUGIN_ROOT}"/skills/code-review/<detector>.sh
      <file> <reviewed-commit>`, or the test against a checkout/stash of
      that commit. It MUST surface the finding (non-zero / failing test).
-     If it does not, the fix is insufficient — iterate on step 3.
+     If it does not, the fix is insufficient — iterate on step 3. For a
+     regression test, also run it against the most plausible WRONG fix (the
+     old key, the looser predicate, the other branch), not only against the
+     code with the fix removed; see Angle J.
    - *Conformance matrix row:* confirm the row, filed as GAP, correctly
      cites the buggy commit/`file:line` as the evidence the requirement
      went unmet.
@@ -2201,7 +2360,7 @@ the review.
 Diff scope: <files changed>
 Review mode: <Lite/Standard/High-risk/Regression — files/domains that justify it>
 Full-file read: <yes/no — which files>
-Angles run: A B C D E F G H [+ Phase 3 if applicable]
+Angles run: A B C D E F G H I J [+ Phase 3 if applicable]
 
 Per-file contracts:
 <file> — <one-paragraph contract>
@@ -2232,6 +2391,9 @@ Negative evidence / skipped areas:
 
 Absence-search checklist:
 <requirement/check/path — present (file:line) or GAP — fixed/logged> (or "none applicable to this diff")
+
+Test discrimination table (Angle J):
+<condition — passing-side test — rejecting-side test or GAP — plausible-wrong mutation — result> (or "no new conditions")
 ```
 
 Every artifact above is required output, not optional detail — an item left
