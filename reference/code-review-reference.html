@@ -1220,7 +1220,7 @@ eview-tools</code>). Detector scripts live at <code style="font-size:11px">${CLA
         <strong>Output:</strong> exit 1 = candidate key functions listed; exit 0 = none.
       </div>
       <div class="det-pattern">Scans column-0 <code>fn</code>/<code>pub fn</code> headers (method receivers skipped) to the first line that is exactly <code>}</code>; matches the name suffix and a <code>[]string</code> parameter named <code>args</code>/<code>flags</code>/<code>*_args</code>/<code>*_flags</code>; flags when the body contains none of the environment markers.</div>
-      <div><span class="miss-badge">Caught: PCH key without the include environment (#31581, comment 4433887205). Phase-R verified: exit 1 on 035f15b229's windows_pch.v, exit 0 on 67dbd968cd's. On 67dbd968cd's driver.v it lists 3 candidates (tcc_atomic_object_key, v3_crun_build_identity, v3_cached_object_compile_signature), still to be triaged</span></div>
+      <div><span class="miss-badge">Caught: PCH key without the include environment (#31581, comment 4433887205). Phase-R verified: exit 1 on 035f15b229's windows_pch.v, exit 0 on 67dbd968cd's. On 67dbd968cd's driver.v it lists 3 candidates, triaged 2026-11-01: v3_cached_object_compile_signature is REAL on Windows (every unit includes the SDK prelude; the module-cache salt has no environment; a 64d8ba5 -prod build switched from CPATH=sdkA to sdkB printed abi=1 from reused module objects, cold gave 2; unreachable on master while Windows falls back over core_windows.h; Linux units include no system headers, so immune); v3_crun_build_identity is the same salt, likely the same on Windows, not reproduced; tcc_atomic_object_key is a false positive (atomic.S has no #include)</span></div>
     </div>
 
   </div>
