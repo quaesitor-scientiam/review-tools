@@ -684,6 +684,7 @@
         <div class="check-item"><span class="check-bullet">&bull;</span>Phase R with the nearest wrong implementation (old key, looser predicate, other branch), not only <code>if false</code></div>
         <div class="check-item"><span class="check-bullet">&bull;</span>Mutate the writers, not only the reader: drop each fix site in turn and confirm a test fails (rev 75)</div>
         <div class="check-item"><span class="check-bullet">&bull;</span>One row per branch with the mode that reaches it; a GAP names every observable, generated output included; assert an incidental path was taken (rev 76)</div>
+        <div class="check-item"><span class="check-bullet">&bull;</span>No row counts without a targeted test and a tried mutation; an untargeted suite run is a GAP (rev 76)</div>
       </div>
       <span class="miss-badge" data-angle="J" data-zero-text="newly added &mdash; no misses classified under it yet">? misses from this angle</span>
     </div>
@@ -1713,7 +1714,8 @@ var angleData = {
       '<strong>Mutate the writers, not only the reader.</strong> When a fix keeps a counter or invariant consistent at several sites (resets, re-syncs, guards), mutating the site that reads the state only proves the fixture notices a broken read. List every writer of that state, add a fixture shape for each writer the test does not reach, and drop each fix site in turn to confirm a test fails. Added rev 75 after vlang/v#31797, where <code>.filter</code>, <code>$d</code>, <code>${}</code> and <code>if</code> targets were untested and still broken.',
       '<strong>One row per branch, with the configuration that reaches it.</strong> Every <code>x or { fallback }</code>, <code>if ... else</code> and per-mode path gets its own row naming the test and the mode reaching it; a mode in which the test passed with the fix disabled does not count.',
       '<strong>A GAP must name every observable.</strong> Program output, return values and the artifacts the code writes (generated C, emitted files); for a code generator the generated text is always an observable.',
-      '<strong>Assert that an incidental path was taken.</strong> When a fixture reaches the code only through an incidental property (a name prefix, a size threshold), assert the path ran, not only the end result.'
+      '<strong>Assert that an incidental path was taken.</strong> When a fixture reaches the code only through an incidental property (a name prefix, a size threshold), assert the path ran, not only the end result.',
+      '<strong>No row counts without a targeted test and a tried mutation.</strong> &ldquo;No mutation tried&rdquo;, or an untargeted suite (&ldquo;all 223 existing tests&rdquo;) offered as the rejecting-side test, is a GAP row, not evidence. vlang/v#31799 pass 1 counted both.'
     ],
     tip: 'Artifact: a test discrimination table, one row per new gate, clause, branch or choice: condition, mode/configuration reaching it, passing-side test, rejecting-side test (or GAP with the observables considered), plausible-wrong mutation tried, result. Added rev 73; mode and observables columns rev 76.'
   }
