@@ -326,6 +326,17 @@ does. Standard and Lite keep the per-angle cap and normal N/A discretion.
    `test_install_smoke_tests_with_the_toolchain_that_built_the_compiler` in
    `cmd/tools/makev_test.py` (fails on `531110823f` for all five install
    routes); add one parity row per gate, with the build line as its sibling.
+   **The sibling can share a NAMESPACE with the new code, not only its logic.**
+   When new code allocates a name, id, slot or key, compare the set it checks
+   against every sibling that allocates from the same space, and list what each
+   one has already taken by the time the new code runs. A sibling can have the
+   same shape and still be a collision source; "follows the same pattern" does
+   not answer "can both pick the same value". Missed on vlang/v#31799
+   (medvednikov, pullrequestreview-5759552885, P2): the FastC function rename
+   mirrored the constant collision pass and was compared with it, but only for
+   shape. The constant pass had already allocated `__vf_function_<name>`, so the
+   rename reused it and the generated C had conflicting types. Add one row per
+   allocator in that space, stating which names the new code's check can see.
    **Artifact: sibling parity table.** One row per new type/function/branch
    checked against a sibling, six columns:
 
@@ -2256,6 +2267,16 @@ adds or changes:
   tried", or an untargeted suite ("all 223 existing tests") as the
   rejecting-side test, is a GAP row, not evidence. vlang/v#31799 pass 1 counted
   both.
+
+- **An assertion must hold on every target its guard admits.** For each
+  literal in an assertion (a type spelling, a width, a path separator, a symbol
+  prefix), ask which platform or configuration fixed it, and whether the test
+  can run anywhere that value differs. Read the value from the code that decides
+  it, or run the case under the differing target. Passing on the author's host
+  says nothing about this. vlang/v#31799 (medvednikov,
+  pullrequestreview-5759552885, P3): the collision test asserted `i64` for
+  `int`, true on the 64-bit host and false on linux/x86; it now reads
+  `fastc_output_c_type('int')`, with a generate-only linux/x86 case.
 
 **Artifact: test discrimination table.** One row per new gate, clause, branch
 or choice: `condition — mode/configuration reaching it — passing-side test —
