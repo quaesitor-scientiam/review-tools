@@ -110,6 +110,22 @@ silent.
   and the Phase 0 artifacts stay required, but "N/A" is the expected answer
   for most of them (repeat-offender list, sibling parity table, Angle
   E/F/H matrices) — state N/A explicitly rather than skip the field.
+  **Exception — a test that certifies a fix is never Lite.** A test-only diff
+  that adds a regression test for a bug, or rests on a claim that the bug is
+  "already fixed" (upstream, in an earlier commit, by another PR), takes the
+  mode of the code under test. Read the fixed function in full, find every
+  writer of the state the fix corrects (each branch that changes the counter,
+  map, flag or collection the fix keeps consistent), and for each one either
+  point at a test case that goes through it or state why it cannot reach the
+  failure. The sibling parity table compares the fix's own sites with those
+  writers, not the test harness with other harnesses. One reproduced shape
+  does not establish "fixed". Missed on vlang/v#31797 (adversarial review
+  round 1, 2026-11-03): a test-only diff pinned FastC's `m[x or { y }] = v`
+  panic, fixed upstream by #31394's two `source_token_count` resets; `/vreview`
+  ran Lite, never read `read_expression_with_prefix_mode_impl`, and passed
+  while `.filter(...)` folds still panicked the same slice (`8 >= 6`) and
+  other branches (`$d`, `${}`, `if` values) let the count fall behind and lose
+  the target type.
 - **Standard** (default) — everything else: ordinary production changes
   with no High-risk-domain surface. Run the full process as documented
   throughout this file, at full strength.
@@ -2196,6 +2212,15 @@ adds or changes:
   prefix, the other branch, a dropped clause — and confirm a test fails for
   each. A fix that survives "plausible wrong" mutations is pinned; one that
   only fails `if false` is not.
+- **Mutate the writers, not only the reader.** When the fix keeps a counter or
+  invariant consistent at N sites (resets, re-syncs, guards), a mutation of
+  the site that READS the state proves the fixture notices a broken read; it
+  says nothing about writers the fixture never passes through. List every
+  writer of that state, add one fixture shape per writer the test does not
+  yet reach, and drop each fix site in turn to confirm a test fails.
+  vlang/v#31797: mutating only `target_type := u32(0)` passed review while
+  `.filter`, `$d`, `${}` and `if` targets were untested, and all four were
+  still broken.
 
 **Artifact: test discrimination table.** One row per new gate, clause, branch
 or choice: `condition — passing-side test — rejecting-side test (or GAP) —
