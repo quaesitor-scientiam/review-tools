@@ -2221,11 +2221,47 @@ adds or changes:
   vlang/v#31797: mutating only `target_type := u32(0)` passed review while
   `.filter`, `$d`, `${}` and `if` targets were untested, and all four were
   still broken.
+- **One row per branch, with the configuration that reaches it.** Every
+  `x or { fallback }`, `if ... else`, early `continue` and per-mode path in the
+  new code gets its own row, naming the test AND the mode, flag or naming
+  scheme under which that test reaches it. A test that runs a program in two
+  modes does not cover a branch that only one mode reaches; one row per
+  condition hides that. If writing the test showed that a mode cannot reach
+  the case (it passed with the fix disabled), record that mode as not covering
+  the branch, do not let it count. vlang/v#31799 (adversarial review round 1,
+  2026-11-03): the FastC rename's `function_c_names[key] or { fastc_signature_c_name(...) }`
+  fallback, the path of the real `builtin` collision, had no row; the test
+  collided only with target libc headers, where the table is always
+  populated, so dropping the fallback or gating the rename on that mode still
+  passed. The author had seen the compact mode pass without the fix while
+  writing the test. The undotted main-module key path had no row either.
+- **A GAP must name every observable and show none differs.** Before writing
+  "GAP: cannot be pinned" for a rejecting side or a mutation, list the
+  observables: program output, return values, AND the artifacts the code
+  writes (generated C, emitted files, logs, cache entries). For a compiler,
+  code generator or formatter, the generated text is always an observable:
+  assert on it. vlang/v#31799 round 2: "the method keeps its name" was
+  recorded as a GAP ("needs a builtin collision"), and a mutant renaming the
+  method instead of the free function passed; four lines asserting on the
+  generated C pinned it.
+- **Assert that the incidental path was taken.** When the fixture reaches the
+  code under test only through a property incidental to the test (a name
+  prefix, a size threshold, a module that happens to keep conventional
+  names), assert that the path ran (a marker in the output, a symbol in the
+  generated text), not only the end result. Otherwise a change to that
+  property makes the test pass trivially. vlang/v#31799 round 2: compact-mode
+  coverage depended on `starts_with('math')` in the compact-naming rule; the
+  test now asserts `__vf_function_mathgeom__Pair_sum(i64 ` in each mode.
+- **No row counts without a targeted test and a tried mutation.** "No mutation
+  tried", or an untargeted suite ("all 223 existing tests") as the
+  rejecting-side test, is a GAP row, not evidence. vlang/v#31799 pass 1 counted
+  both.
 
 **Artifact: test discrimination table.** One row per new gate, clause, branch
-or choice: `condition — passing-side test — rejecting-side test (or GAP) —
-plausible-wrong mutation tried — result`. State "no new conditions" explicitly
-when the diff adds none.
+or choice: `condition — mode/configuration reaching it — passing-side test —
+rejecting-side test (or GAP, with the observables considered) — plausible-wrong
+mutation tried — result`. State "no new conditions" explicitly when the diff
+adds none.
 
 ---
 
@@ -2441,7 +2477,7 @@ Absence-search checklist:
 <requirement/check/path — present (file:line) or GAP — fixed/logged> (or "none applicable to this diff")
 
 Test discrimination table (Angle J):
-<condition — passing-side test — rejecting-side test or GAP — plausible-wrong mutation — result> (or "no new conditions")
+<condition — mode/configuration reaching it — passing-side test — rejecting-side test or GAP (observables considered) — plausible-wrong mutation — result> (or "no new conditions")
 ```
 
 Every artifact above is required output, not optional detail — an item left
