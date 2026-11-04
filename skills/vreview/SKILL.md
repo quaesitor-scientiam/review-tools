@@ -2363,6 +2363,16 @@ For every diff that adds or widens a rejection:
   "return to the site" was wrong the same way: it swaps, and `.popsection` restores
   both sections. When the prediction cannot be made reliable, stay silent on that
   input rather than guess; the downstream tool still rejects the real mismatch.
+- **A model of another tool that keeps failing is the bug.** If two review rounds
+  in a row find new defects in code that re-implements another tool's rules, stop
+  patching and replace the model with an allow-list of inputs you can prove, staying
+  silent on the rest. On #31407 the assembler state machine took 18, 15 and 13
+  confirmed defects across three rounds. The allow-list that replaced it is about
+  half the size, and its next round found 14 narrower gaps, closed by tightening the
+  list or disclosed as limits. A diagnostic can always say less. State what the
+  silence gives up in the PR.
+- **Sweep the real corpus.** Run a new rejection over every real use in the tree
+  (`git grep` the construct, one checker run per file) before reviewing it by hand.
 - **The sibling may share the bug.** Sibling parity (Phase 0 step 7) reported
   "matches" for the const case because the alias path had the same defect
   before the PR. A parity match with a sibling that has never been through
