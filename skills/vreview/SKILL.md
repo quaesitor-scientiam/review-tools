@@ -24,8 +24,8 @@ memory, because memory does not sync.
 
 1. **No artifacts, no pass.** A `/vreview` run counts as a pass only when its
    Artifacts block (per-file contract paragraphs, repeat-offender list, new
-   type/function contracts, sibling parity table, test discrimination table, and
-   every other artifact this file requires) is written out in the response, with an
+   type/function contracts, sibling parity table, test discrimination table,
+   acceptance-regression table, and every other artifact this file requires) is written out in the response, with an
    explicit "none" / "N/A — reason" where one is empty. Never report "`/vreview`
    passed" or "clean" for a run that omitted any of it — not to the user, not in a
    commit message, not in a PR body. On PR #149, passes reported clean without the
@@ -130,10 +130,11 @@ silent.
   with no High-risk-domain surface. Run the full process as documented
   throughout this file, at full strength.
 - **High-risk** — the diff touches ANY of: protocol code (H2/QUIC/HTTP),
-  the parser/scanner/checker, crypto/TLS, an `unsafe{}` block, concurrency
-  primitives (locks, condvars, goroutines/threads, atomics), or manual
-  resource-lifetime code (C interop, `.free()`/`.close()`/`.shutdown()`
-  contracts). Even a small diff in these domains has a track record of
+  the parser/scanner/checker, a new or widened diagnostic, rejection or
+  validation gate in any tool (Angle K applies in full), crypto/TLS, an
+  `unsafe{}` block, concurrency primitives (locks, condvars,
+  goroutines/threads, atomics), or manual resource-lifetime code (C interop,
+  `.free()`/`.close()`/`.shutdown()` contracts). Even a small diff in these domains has a track record of
   hiding real findings — see the Bug Corpus.
 - **Regression** — this review is running because an external reviewer
   (Codex or human) already found a miss in a prior pass on this exact
@@ -394,6 +395,7 @@ recall-driven failure mode this skill has repeatedly found unreliable.
 - [ ] Repeat-offender list: <n rows> (or "none")
 - [ ] New type/function contract list: <n rows> (or "none")
 - [ ] Sibling parity table (new path / sibling / sibling caller guards / matched behavior / intentional divergence / unresolved divergence): <n rows> (or "no new code requiring a sibling check")
+- [ ] Accepted-vocabulary inventory (Angle K): <n entries, from which old-code lists> (or "no new or widened rejection in this diff")
 - [ ] Exclusions declared: <what and why> (or "none — full scope covered")
 ```
 
@@ -2302,6 +2304,68 @@ rejecting-side test (or GAP, with the observables considered) — plausible-wron
 mutation tried — result`. State "no new conditions" explicitly when the diff
 adds none.
 
+### Angle K — Acceptance regression (what the old build accepted that this diff now rejects)
+
+**A diff that adds a diagnostic, a rejection or a validation gate fails in two
+directions, and every angle above hunts only one of them.** Angles A–J ask
+whether the new check misses a case it should report (a false negative). The
+other direction is the one a maintainer finds first: a program the previous
+build compiled and ran correctly, now refused (a false positive). vlang/v#31407
+(medvednikov, comment 6633807070, 2026-11-04): six rounds — three `/vreview`,
+three `/adversarial-review` — on the raw-asm clobber check found nothing, then
+the maintainer built the pre-PR revision and the PR head side by side and ran
+four ordinary programs through both: a named `const` operand (typed by V at
+native width, emitted by cgen as an uncast value, so GCC used 32 bits), the
+`flags` clobber (already listed beside `cc` in `util.asm_clobber_is_special`),
+an `.intel_syntax` region (operand order reversed, so "the last operand is the
+destination" was wrong), and an `.if 0` body (never assembled). All four passed
+on the old build and were rejected by the PR. None was exotic: each was a word
+from the input vocabulary the old build already accepted that nobody had
+enumerated, because every lens was pointed at the new check and none at the
+old acceptance surface.
+
+For every diff that adds or widens a rejection:
+
+- **Enumerate the accepted vocabulary first, from the code, not from memory.**
+  Find every list the OLD code uses to accept or classify this input: keyword
+  tables, synonym lists (`asm_clobber_is_special`), directive sets, constraint
+  letters, every expression kind an operand may be, every binding an
+  identifier may resolve to (local, parameter, const, global, enum value).
+  Write the list down as an artifact BEFORE judging the new check. For each
+  entry state whether the new check handles it, ignores it correctly, or
+  misclassifies it. An entry the new check never considers is a candidate,
+  not a pass.
+- **Build the pre-PR program, not the test.** For each vocabulary entry, write
+  the smallest valid program that uses it and that the old build accepts; run
+  it through both builds (or through the checker's fixture mode when the host
+  cannot execute it). The maintainer's method on #31407 is the template:
+  `git worktree add` at the merge-base, build both, run every program through
+  both. A fixture in the PR that contains only the inputs the author thought of
+  is not this step.
+- **Scope directives and modes, not lines.** When the checked input has
+  region-changing constructs (a syntax switch, an assembler or preprocessor
+  conditional, a macro definition, a mode flag, `$if`), ask what each one does
+  to the lines AFTER it, not whether skipping the construct's own line is
+  right. "The directive is skipped" was true on #31407 and irrelevant.
+- **Treat your own grounding as a hypothesis.** The CONTEXT handed to finders
+  on #31407 asserted "AT&T templates" and "an identifier is a typed variable"
+  as facts; both were the bugs. Any sentence in a review brief that begins
+  "the input is always…" or "X is a…" is a claim the review must test, not a
+  premise finders may rely on. Put such sentences into the vocabulary list as
+  entries to attack.
+- **The sibling may share the bug.** Sibling parity (Phase 0 step 7) reported
+  "matches" for the const case because the alias path had the same defect
+  before the PR. A parity match with a sibling that has never been through
+  this angle is evidence of consistency, not of correctness: run the
+  vocabulary list against the sibling too.
+
+**Artifact: acceptance-regression table.** One row per vocabulary entry:
+`entry — where the old code accepts it (file:line) — valid program exercising
+it — old build result — new build result — disposition (pass / false positive
+/ out of scope, with reason)`. State "no new or widened rejection in this diff"
+explicitly when the angle does not apply; a diagnostic-adding diff with this
+table marked N/A is itself a GAP.
+
 ---
 
 ## Phase 2 — Triage (inline, no sub-agents)
@@ -2483,7 +2547,7 @@ the review.
 Diff scope: <files changed>
 Review mode: <Lite/Standard/High-risk/Regression — files/domains that justify it>
 Full-file read: <yes/no — which files>
-Angles run: A B C D E F G H I J [+ Phase 3 if applicable]
+Angles run: A B C D E F G H I J K [+ Phase 3 if applicable]
 
 Per-file contracts:
 <file> — <one-paragraph contract>
@@ -2517,6 +2581,9 @@ Absence-search checklist:
 
 Test discrimination table (Angle J):
 <condition — mode/configuration reaching it — passing-side test — rejecting-side test or GAP (observables considered) — plausible-wrong mutation — result> (or "no new conditions")
+
+Acceptance-regression table (Angle K):
+<vocabulary entry — where the old code accepts it (file:line) — valid program — old build result — new build result — disposition> (or "no new or widened rejection in this diff")
 ```
 
 Every artifact above is required output, not optional detail — an item left

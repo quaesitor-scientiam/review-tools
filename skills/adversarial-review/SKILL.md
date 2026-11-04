@@ -75,6 +75,14 @@ existed that never called the escaping function at all, so a grep for the
 escaping function's name never surfaced them — only a grep for the raw field
 read would have.
 
+**Grounding is a hypothesis, not a premise.** Every classifying sentence in
+`CONTEXT` — "the template is AT&T", "an operand identifier is a typed
+variable", "this field is always set by the caller" — is a claim the finders
+must be told to test, so write it as one ("the change assumes X; find an input
+the old code accepted for which X is false"). On vlang/v#31407 three rounds
+inherited exactly those two sentences as facts from CONTEXT, and both were the
+bugs the maintainer then found (vreview Angle K).
+
 ## Step 2 — Pick lenses
 
 Four lenses cover most changes and are the default starting set — adapt,
@@ -113,6 +121,19 @@ pattern (provenance tracking, a permission gate, resource cleanup), add a
 meant to reach (per the search-anchoring note in Step 1) across the whole
 tree, not just the call sites the change's own description names, and flag
 every hit that doesn't yet carry the new field/check as a candidate gap.
+
+For a change that adds or widens a rejection (a new compiler diagnostic, a
+validation error, a lint, a stricter parser), add an **acceptance-regression**
+lens — and make it mandatory, not optional, for that shape. Its finder does
+not read the new check for defects; it CONSTRUCTS inputs the previous build
+accepted and the new one refuses, by enumerating the accepted vocabulary from
+the OLD code (keyword and synonym tables, directive or mode sets, every kind of
+expression or binding an operand may be) and writing the smallest valid
+program for each entry. Hand it the merge-base revision and tell it to run
+every program through both builds (or the checker's fixture mode). Its
+refuters must try to make the program PASS on the old build, not to argue the
+new check is reasonable. Six rounds on vlang/v#31407 ran without this lens and
+missed four such programs (vreview Angle K has the list).
 
 Scale lens count and verification strictness to the change's size and
 stakes: 3-4 lenses / 3 refuters per finding for a small, self-contained diff;
