@@ -199,9 +199,12 @@ const verified = await parallel(candidates.map(c => () =>
   })
 ))
 
-const confirmed = verified.filter(Boolean).filter(v => v.survives)
-log(`${confirmed.length}/${candidates.length} candidates survived adversarial verification`)
-return { confirmed, totalCandidates: candidates.length }
+const done = verified.filter(Boolean)
+const confirmed = done.filter(v => v.survives)
+// No vote at all means the refuters failed (for example a usage limit), not that it was refuted.
+const unverified = done.filter(v => v.votes.length === 0)
+log(`${confirmed.length}/${candidates.length} survived; ${unverified.length} never verified`)
+return { confirmed, unverified, totalCandidates: candidates.length }
 ```
 
 Launch it in the background (the default) unless the user is actively
@@ -209,6 +212,12 @@ waiting on nothing else — this task's own result arrives as a notification;
 don't poll for it.
 
 ## Step 4 — Report
+
+**An empty `confirmed` is only a clean result if every agent ran.** Check the
+`<failures>` block and `agents_error` first, and treat any non-empty `unverified`
+as an unfinished round: resume with `resumeFromRunId` once the cause is cleared.
+On vlang/v#31407 round 2, 45 of 48 agents hit a usage limit and the run returned
+`{"confirmed":[],"totalCandidates":15}`; on resume all 15 were confirmed unanimously.
 
 When the workflow completes, report the `confirmed` findings — file, line,
 summary, failure scenario, which lens found it. If `confirmed` is empty,

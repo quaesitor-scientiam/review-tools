@@ -2353,6 +2353,16 @@ For every diff that adds or widens a rejection:
   "the input is always…" or "X is a…" is a claim the review must test, not a
   premise finders may rely on. Put such sentences into the vocabulary list as
   entries to attack.
+- **Read what the next stage actually emits; never infer it from the type.** A
+  rule that predicts another tool's behaviour (what register GCC picks, what an
+  assembler does with a directive) is a claim about that tool's real input and
+  semantics. Generate the output (`-o out.c`) and run the tool. The first fix for
+  #31407's const finding reasoned from V types ("a typed constant keeps its type"):
+  round-two probes showed `bool` constants as C `int`, `sizeof` as `size_t`, enum
+  constants as `int`, and `u16(1) + 2` promoted to `int`. Modelling `.previous` as
+  "return to the site" was wrong the same way: it swaps, and `.popsection` restores
+  both sections. When the prediction cannot be made reliable, stay silent on that
+  input rather than guess; the downstream tool still rejects the real mismatch.
 - **The sibling may share the bug.** Sibling parity (Phase 0 step 7) reported
   "matches" for the const case because the alias path had the same defect
   before the PR. A parity match with a sibling that has never been through
