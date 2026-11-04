@@ -114,7 +114,7 @@
 <body>
 
 <h1>/code-review Skill Reference</h1>
-<p class="subtitle">Plugin skill <strong>/review-tools:vreview</strong> at <code style="font-size:11px">${CLAUDE_PLUGIN_ROOT}/skills/vreview/SKILL.md</code> (git repo <code style="font-size:11px">S:\repo\review-tools</code>). Detector scripts live at <code style="font-size:11px">${CLAUDE_PLUGIN_ROOT}/detectors/</code>; run them with <code style="font-size:11px">run_detectors.sh</code>. Generated 2026-11-03, rev 78 (see Changelog tab for the full revision-by-revision story). H2 conformance matrix status: server h2spec baseline EMPTY, 146/146 cases pass.</p>
+<p class="subtitle">Plugin skill <strong>/review-tools:vreview</strong> at <code style="font-size:11px">${CLAUDE_PLUGIN_ROOT}/skills/vreview/SKILL.md</code> (git repo <code style="font-size:11px">S:\repo\review-tools</code>). Detector scripts live at <code style="font-size:11px">${CLAUDE_PLUGIN_ROOT}/detectors/</code>; run them with <code style="font-size:11px">run_detectors.sh</code>. Generated 2026-11-04, rev 79 (see Changelog tab for the full revision-by-revision story). H2 conformance matrix status: server h2spec baseline EMPTY, 146/146 cases pass.</p>
 
 <div class="meta-grid">
   <div class="meta-item"><span class="meta-label">Primary Use</span>Execute a review workflow quickly: scope, derive contracts, fresh-eyes, detectors, scan A-I angles, domain gates, triage, verify, regress.</div>
@@ -550,6 +550,7 @@
         <div class="check-item"><span class="check-bullet">&bull;</span>Error-scope consistency</div>
         <div class="check-item"><span class="check-bullet">&bull;</span>Event multiplicity</div>
         <div class="check-item"><span class="check-bullet">&bull;</span>Goroutine lifecycle / resource cleanup</div>
+        <div class="check-item"><span class="check-bullet">&bull;</span>Freeing an arena frees runtime state first touched inside it (closure table, lazy cache); test with freed memory unmapped, in a fresh process (rev 79)</div>
       </div>
       <span class="detector-badge">detect_sibling_arms.v</span>
       <span class="detector-badge">detect_error_scope.v</span>
@@ -1612,7 +1613,8 @@ var angleData = {
       'Timing or ordering dependency introduced that callers violate',
       'Parallel change in the same diff that makes a downstream callee unsafe',
       '<strong>Sync/mux parity is bidirectional &mdash; run detector:</strong> <code>bash detect_mux_trailers_preserved.v</code>. When two parallel implementations exist (sync <code>H2Conn</code> vs mux <code>H2MuxConn</code>), audit what EACH path does that the other does not &mdash; not just newly-added validation. The mux path dropped response trailers (<code>grpc-status</code>, ...) that the sync path appends to <code>H2ClientResponse.headers</code> (commit a65240ffb0)',
-      'A verification gate (smoke test, self-check) is a sibling of the build line it approves: every toolchain/config flag must reach it (rev 63)'
+      'A verification gate (smoke test, self-check) is a sibling of the build line it approves: every toolchain/config flag must reach it (rev 63)',
+      '<strong>A sibling can share a namespace, not only logic (rev 77).</strong> When new code allocates a name, id, slot or key, list what every other allocator in that space has already taken by the time the new code runs; &ldquo;follows the same pattern&rdquo; does not answer &ldquo;can both pick the same value&rdquo;. vlang/v#31799: the FastC rename mirrored the constant collision pass in shape only and reused a <code>__vf_function_</code> name it had already allocated.'
     ],
     tip: 'Run: <code>grep -rn "fn_name" vlib/</code> to find all call sites. Check both direct callers and transitive callers of exported functions. For parallel sync/mux implementations, diff what each path does in BOTH directions.'
   },
