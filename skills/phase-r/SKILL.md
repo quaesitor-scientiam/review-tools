@@ -78,8 +78,9 @@ that passes proves nothing. The user has corrected this violation three times
    site doesn't own) — fix the repro, re-verify from step 4.
 
 8. **Log it** — all of, in the same session:
-   - corpus row in memory `code-review-misses.md` (class, reviewed commit,
-     detector/check, failure narrative);
+   - corpus row in `${CLAUDE_PLUGIN_ROOT}/reference/code-review-misses.md` (class, reviewed commit,
+     detector/check, failure narrative) and in `reference/code-review-misses-data.js`.
+     Not in Claude memory: memory does not sync between machines;
    - Angle bullet in `${CLAUDE_PLUGIN_ROOT}/skills/vreview/SKILL.md` if the class is new;
    - mechanical detector in `${CLAUDE_PLUGIN_ROOT}/skills/code-review/` if mechanizable
      (verify: exit 1 on buggy rev, exit 0 on fixed tree) + add it to

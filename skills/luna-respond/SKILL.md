@@ -127,7 +127,7 @@ delete the other once known:
 
 ## Phase 8 — Bookkeeping (same session, unprompted)
 
-- Miss-corpus rows in `code-review-misses.md` / the reference HTML's data
+- Miss-corpus rows in `${CLAUDE_PLUGIN_ROOT}/reference/code-review-misses.md` / the reference HTML's data
   file (`${CLAUDE_PLUGIN_ROOT}/reference/code-review-misses-data.js`) — the corpus
   has no separate structured `reviewer`/`source` field today (Codex vs.
   Copilot attribution lives in the free-text narrative); follow the same

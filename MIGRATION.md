@@ -69,8 +69,10 @@ global preferences, not review policy. Copies of the two `check_*` hooks are kep
 under `hooks/` for reference; they are not declared in `hooks/hooks.json`, so they do
 not fire twice.
 
-The miss corpus narrative (`code-review-misses.md`) stays in project memory; the
-commit gate reads it via `$CODE_REVIEW_MISSES_MD` or the default memory path.
+The miss corpus narrative lives at `reference/code-review-misses.md` (moved from project memory
+on 2026-11-03, because memory does not sync between machines). On a machine that still has a
+memory copy, fold any rows missing from the repo into that file, then replace the copy with a
+pointer.
 
 ## Cutover checklist (vlang checkout, needs an explicit go-ahead)
 

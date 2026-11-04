@@ -123,7 +123,7 @@ by finding 4 you've mentally filed findings 1-3 as "already handled").
   entirely, even though 3 OTHER functions in the SAME file already used the
   `err.code() != 0` preservation pattern for their own callees. Caught by
   this session's own `/vreview` pass before push, not by Codex or a human;
-  see [[code-review-misses]] round 7 for the full repro.
+  see reference/code-review-misses.md round 7 for the full repro.
 - **One-paragraph contract check, after writing the fix.** State the touched
   function's complete contract in one paragraph, as if reading it fresh, then
   check every line — not just the new ones — against that paragraph. This is

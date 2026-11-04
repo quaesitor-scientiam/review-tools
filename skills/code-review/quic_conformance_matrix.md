@@ -420,7 +420,7 @@ strictly to conn.v's WIRING of flow control (admission checks, frame
 dispatch, window creation/advancement). `flow_control.v`'s own primitives
 (`FlowControlWindow`/`ReceiveWindow`) and `stream.v`'s own state machine
 were audited separately during Phases 6/8/9b review rounds (see
-[[code-review-misses]]) and are not re-derived here.
+reference/code-review-misses.md) and are not re-derived here.
 
 | Requirement | § | Status | Evidence |
 |---|---|---|---|
@@ -433,7 +433,7 @@ were audited separately during Phases 6/8/9b review rounds (see
 | Endpoints MUST NOT exceed the stream-count limit set by their peer | 4.6 | ✅ | `open_stream`: `if opened_count >= limit { ...; return error(...) }` before `c.streams.open_local_stream` is ever called — `QuicStreamSet.open_local_stream` itself does NOT check this by design (its own doc comment says so), so `open_stream` is the correct, sole enforcement point |
 | A frame referencing a stream ID exceeding OUR OWN advertised limit MUST be a connection error (STREAM_LIMIT_ERROR) | 4.6 | ✅ (generic code permitted, same §11 allowance as above) | `handle_stream_frame`/`handle_reset_stream_frame` both pass `c.local_max_streams_uni`/`bidi` into `QuicStreamSet.get_or_create`, which enforces the bound (verified during Phase 6/8 review, not re-derived here) |
 | MAX_STREAMS frames that do not increase the limit MUST be ignored | 4.6 | ✅ | `MaxStreamsFrame` dispatch arm: `if frame.maximum_streams > c.peer_max_streams_bidi/uni { ...update... }` — non-increasing values are a no-op, mirroring the `raise_limit` pattern above |
-| A max_streams value > 2^60 (transport parameter or frame) MUST close the connection (TRANSPORT_PARAMETER_ERROR / FRAME_ENCODING_ERROR respectively) | 4.6 | ✅ (pre-existing, not conn.v's job) | Enforced at parse time in `transport_parameters.v` (`initial_max_streams_bidi/uni ≤ 2^60`, see the Transport Parameters section above) and `frame.v`'s `parse_max_streams_frame`/`parse_streams_blocked_frame` (both capped, per [[code-review-misses]]'s STREAMS_BLOCKED sibling-sweep fix) — conn.v never sees an out-of-bound value, since the parser rejects it before a `MaxStreamsFrame`/transport-parameter value ever reaches conn.v's dispatch |
+| A max_streams value > 2^60 (transport parameter or frame) MUST close the connection (TRANSPORT_PARAMETER_ERROR / FRAME_ENCODING_ERROR respectively) | 4.6 | ✅ (pre-existing, not conn.v's job) | Enforced at parse time in `transport_parameters.v` (`initial_max_streams_bidi/uni ≤ 2^60`, see the Transport Parameters section above) and `frame.v`'s `parse_max_streams_frame`/`parse_streams_blocked_frame` (both capped, per reference/code-review-misses.md's STREAMS_BLOCKED sibling-sweep fix) — conn.v never sees an out-of-bound value, since the parser rejects it before a `MaxStreamsFrame`/transport-parameter value ever reaches conn.v's dispatch |
 | An endpoint unable to open a stream due to the peer's limit SHOULD send STREAMS_BLOCKED | 4.6 | ✅ | `open_stream` queues via `c.pending_streams_blocked`, drained by `drain_pending_streams_blocked`; deduplicated per still-unraised limit value (`streams_blocked_sent_bidi/uni`) so a caller retrying `open_stream` against the same unchanged limit doesn't re-queue redundant frames |
 | Implementations MAY increase locally-advertised MAX_DATA/MAX_STREAM_DATA/MAX_STREAMS over time — not a MUST for any of the three | 4.2/4.6 | ✅ / 🔸 (scope choice) | MAX_DATA/MAX_STREAM_DATA: `drain_flow_control_raises` auto-tunes and re-advertises both via `ReceiveWindow.should_advertise_more()`. MAX_STREAMS: `local_max_streams_bidi/uni` are FIXED for the connection's lifetime (own doc comment, conn.v L172-176) — this endpoint never grows its own advertised stream-count limit as streams close. RFC 9000 §4.6 phrases this as "implementations MIGHT choose to," not a MUST — a deliberate, documented scope choice (bandwidth/complexity tradeoff), not a gap |
 
@@ -463,7 +463,7 @@ other gaps.
 Audited 2026-08-14, same session and trigger as the two sections above.
 Scope: conn.v's WIRING of `loss_detection.v`/`rtt.v`/`congestion_control.v`
 — those files' own algorithms were already RFC-9002-audited during Phase 7
-(see [[code-review-misses]] for that round's 3 fixes), not re-derived here.
+(see reference/code-review-misses.md for that round's 3 fixes), not re-derived here.
 
 | Requirement | § | Status | Evidence |
 |---|---|---|---|
@@ -485,7 +485,7 @@ Audited 2026-08-14, same session and trigger as the sections above. Scope:
 conn.v's WIRING of `key_update.v`'s `KeyUpdateState` — the READ-side
 generation-resolution logic in `key_update.v` itself was already RFC-9001-
 audited during Phase 8 (repeat-offender fixes for HP-key-preservation and
-generation-ambiguity, see [[code-review-misses]]) and is not re-derived
+generation-ambiguity, see reference/code-review-misses.md) and is not re-derived
 here.
 
 | Requirement | § | Status | Evidence |
@@ -718,7 +718,7 @@ committed scope (Phase 13 is server-only, not proxy).
    backwards (inverted from RFC 9000 §6.2's actual text and from the
    correct, already-fixed code) — a wrong row is more dangerous than a
    missing one, since a future reviewer could "fix" correct code to match
-   it. Found and closed 2026-08-02; see [[code-review-misses]].
+   it. Found and closed 2026-08-02; see reference/code-review-misses.md.
 1. On any change to a file listed above, re-walk the rows touching that area.
 2. A new MUST discovered → add a row as ⚠️ GAP, then close it (fix + test) and
    flip to ✅ CONFORMS with the commit that closed it — same discipline as

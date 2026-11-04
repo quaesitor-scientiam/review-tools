@@ -13,7 +13,7 @@ WSL and macOS. Git is the sync mechanism; nothing is copied by hand.
 | `skills/phase-r/`, `skills/codex-respond/`, `skills/luna-respond/`, `skills/adversarial-review/` | Companion skills |
 | `detectors/` | The detectors, one V program each (`detect_*.v`, same `<file> <base_copy_or_empty>` contract), and `run_detectors.v`, the batch runner: computes targets and base revision with git, compiles the detectors once into a hash-keyed cache under the OS temp dir, dispatches by a basename manifest. No bash needed |
 | `hooks/` | `hooks.json` (plugin hook wiring), `require_code_review.sh` (commit gate), `check_powershell_parse.ps1`, `check_ps1_file_parse.ps1` (reference copies, wired globally) |
-| `reference/` | `code-review-reference.html` quick reference and its `code-review-misses-data.js` miss corpus |
+| `reference/` | `code-review-reference.html` quick reference, its `code-review-misses-data.js` table data, and the `code-review-misses.md` narrative corpus |
 
 ## Install and update
 

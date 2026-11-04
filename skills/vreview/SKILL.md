@@ -511,7 +511,7 @@ platform makes this wrong?
   required. What genuinely WOULD need deeper analysis — and this detector
   does not attempt — is the resource being re-aliased to another variable
   before the free, nested two-plus struct levels deep, or consumed by a
-  caller in a DIFFERENT file. See [[code-review-misses]] for the full
+  caller in a DIFFERENT file. See reference/code-review-misses.md for the full
   breakdown, the corrected count, and why the first framing of this as
   "needs real data-flow tracing" overstated it.
 - **Unshared getter return (V-specific):** V's plain array/map assignment
@@ -639,7 +639,7 @@ platform makes this wrong?
   `os.execute()` path argument in `heap_attr_struct_alloc_test.v` except a
   compound `-path "${vlib_dir}|@vlib|@vmodules"` value, deliberately left
   hand-quoted because an argv-boundary probe said it was fine — that probe
-  never touched substitution at all. See [[code-review-misses]] for the
+  never touched substitution at all. See reference/code-review-misses.md for the
   full repro (`echo "${evil}|@vlib|@vmodules"` with `evil='/tmp/repo$HOME'`
   expands to the real home directory; the same value through
   `os.quoted_path()` does not).
@@ -651,7 +651,7 @@ platform makes this wrong?
   time; three separate rounds each patched one more shell-quoting property
   (word-splitting, then substitution, then Windows `%VAR%` expansion)
   instead of noticing the pattern and switching tools. See
-  [[code-review-misses]] (the "third round" row) for the full history.
+  reference/code-review-misses.md (the "third round" row) for the full history.
 - **A fallback/retry's trigger must encode the case it was written for, not a
   proxy that also matches other inputs.** For every new "if the primary path
   finds nothing, try X" branch, write down the ONE motivating case, then the
@@ -743,7 +743,7 @@ is built from whatever source tree was pointed at extraction time — a graph
 built against `master` will silently return "no symbols match" for code that
 only exists on an unmerged branch/worktree; confirm which tree is indexed
 (`graphify overview`) before concluding a symbol doesn't exist. See
-[[code-review-misses]] for the full worked example (`detect_struct_wrapped_
+reference/code-review-misses.md for the full worked example (`detect_struct_wrapped_
 resource_leak.sh`'s `GRAPHIFY_EXE`/`GRAPHIFY_GRAPH` mode) and for the
 distinction this drew out: a call-graph question ("who calls X") a symbol
 graph answers directly, versus a local-dataflow question ("does this specific
@@ -1529,7 +1529,7 @@ declared lock. Pay special attention to:
   peer-driven and not drained in-handler, it needs a cap. Missed on #27413:
   `pending_ping_acks`/`pending_settings_acks` grew unbounded while a peer held the
   connection pre-preface. Missed on #28129 (dead_request_streams, 2026-08-21, see
-  code-review-misses.md): the detector was scoped to H2 only (`^h2_.*\.v` in
+  reference/code-review-misses.md): the detector was scoped to H2 only (`^h2_.*\.v` in
   `run_detectors.sh`'s manifest — now `.*\.v`) AND hardcoded to receiver `c` with
   no map-assignment pattern, so it matched literally nothing in h3_conn.v; the
   SAME bug class had already been found and fixed twice in the same function, on
@@ -1818,7 +1818,7 @@ declared lock. Pay special attention to:
   value. To genuinely stall an mbedtls server handshake a client must send a *valid*
   ClientHello then withhold the rest (a bare `dial_tcp` fails fast), and the handshake
   budget comes from `accept_timeout` when finite (not the `tls_handshake_timeout`
-  fallback) — see [[code-review-misses]].
+  fallback) — see reference/code-review-misses.md.
 - **Spawned blocking reader needs a guaranteed wake path at teardown:** When a
   constructor `spawn`s a background thread that blocks in `transport.read()` (or any
   blocking I/O on a handle it does not own), there must be a teardown path that is
@@ -1834,7 +1834,7 @@ declared lock. Pay special attention to:
   (discussion_r3475761576). **Testing note:** if the fix makes the bad input panic, the
   nil case can't be exercised at runtime (panic aborts the V test binary) — reproduce it
   STATICALLY with the detector; a runtime test that passes a *valid* closer is a false
-  guard for the nil bug (it works on the buggy commit too). See [[code-review-misses]].
+  guard for the nil bug (it works on the buggy commit too). See reference/code-review-misses.md.
 
 ### Angle G — Security
 For changes that touch TLS/crypto, `unsafe {}` blocks, or protocol parsing arithmetic, check the
@@ -2441,7 +2441,7 @@ the review.
    - *Conformance matrix row:* flip GAP → CONFORMS, citing the fix commit.
    - *Required artifact/table:* confirm the NEW schema, applied to this
      same diff, surfaces the finding that the old schema missed.
-6. **Log it** in `[[code-review-misses]]` with the reproduction command (or
+6. **Log it** in `${CLAUDE_PLUGIN_ROOT}/reference/code-review-misses.md` with the reproduction command (or
    matrix row / artifact-schema change / rule citation) AND step 2's three
    fields verbatim (existing rule / why it failed / new enforcement
    mechanism), so the corpus of past misses becomes a standing regression

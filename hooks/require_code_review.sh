@@ -76,7 +76,7 @@ deny() {
 # edited. A plain copy of the plugin (no git) keeps the old everywhere-mtime rule,
 # since it has no commit of its own to gate.
 html="$plugin_root/reference/code-review-reference.html"
-misses="${CODE_REVIEW_MISSES_MD:-$HOME/.claude/projects/S--repo-vlang/memory/code-review-misses.md}"
+misses="${CODE_REVIEW_MISSES_MD:-$plugin_root/reference/code-review-misses.md}"
 plugin_is_git=0
 git -C "$plugin_root" rev-parse --is-inside-work-tree >/dev/null 2>&1 && plugin_is_git=1
 same_repo=0
@@ -103,9 +103,9 @@ if [ -f "$html" ] && { [ "$plugin_is_git" -eq 0 ] || [ "$same_repo" -eq 1 ]; }; 
                "$plugin_root/skills/code-review/quic_conformance_matrix.md"; do
       [ -f "$src" ] && [ "$src" -nt "$html" ] && { stale="$src is newer than the HTML"; break; }
     done
+    # In a git plugin the corpus is under reference/, and checkout mtimes mean nothing.
+    [ -z "$stale" ] && [ -f "$misses" ] && [ "$misses" -nt "$html" ] && stale="$misses is newer than the HTML"
   fi
-  # The miss corpus lives in project memory, outside the plugin: mtime only.
-  [ -z "$stale" ] && [ -f "$misses" ] && [ "$misses" -nt "$html" ] && stale="$misses is newer than the HTML"
   if [ -n "$stale" ]; then
     deny "Blocked by require_code_review: review docs changed ($stale) but the HTML reference was not synced. Update $html (angle cards, detectors tab, miss corpus, counts, subtitle date) per feedback_update_code_review_html, commit it in the review-tools repo, then retry."
   fi
