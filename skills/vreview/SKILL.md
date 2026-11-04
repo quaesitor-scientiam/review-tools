@@ -1163,6 +1163,24 @@ For each touched file, after reading it in full:
   every negative half of the copy needs its own test. Missed on graphify#149
   (round 2): `find_const` re-typed `sees_in_module`'s condition, the copy
   drifted from it within one commit, and neither negative half was tested.
+- **A value copied out of an arena is not all that survives its free.** When code
+  frees a whole arena (`prealloc_scope_end`, `prealloc_scope_free_after`) or any pool
+  it cannot enumerate, listing the locals and struct fields it copies out covers only
+  what the code names. Runtime state set up on first use survives too, wherever that
+  first use happened: a global table, a lazily built cache, a map that grows. For each
+  arena, list what the code inside it can touch for the first time, reading the runtime
+  (`vlib/builtin`, `os`, the closure runtime) rather than only the modules the diff
+  imports. A capturing closure, a first `go`/`spawn`, or a first lazy init inside the
+  arena each need an answer. Then test in the mode that unmaps freed memory
+  (`-d prealloc_no_recycle`), in a fresh process that has not already set such state up:
+  a test binary that ran other tests first, and `MallocScribble`, which does not touch
+  mmap blocks, both hide this. Missed twice by `/vreview` on graphify#157 (found by
+  `/adversarial-review` round 1, 2026-11-03): `resolve_edges`' `world_build`, the first
+  capturing closure of an extract, set up V's `g_closure` table inside `resolve_arena`.
+  The artifact listed every copied value, and the `__global` grep covered only the
+  compiler modules a worker imports, so the table was left dangling for the next closure
+  to write through, and four copies of `vlib/v` segfaulted. Regression test:
+  `test_a_prealloc_extract_uses_nothing_it_has_freed` (signal 11 before `a4cdb56`).
 
 ### Angle E — Protocol / RFC compliance (H2 and QUIC)
 **Requirements-driven, not diff-driven.** A diff-driven review cannot find a
