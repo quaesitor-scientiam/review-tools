@@ -2401,6 +2401,39 @@ adds or changes:
   After fixing a finding from this list, re-run the real-tree comparison before
   calling it done. There, two of the fixes broke sites the rule was written for:
   the corpus diff caught both, the tests caught neither.
+  **And these, from round 2 of the same branch** (2026-11-05: 22 confirmed findings
+  that came down to 6 defects and 5 test gaps; 5 of the defects were these shapes,
+  all in code the round 1 fixes wrote):
+  - **A lookup's "none" read as "absent".** A negative conclusion drawn from a
+    lookup that also returns none for "can't pick one" or "stopped looking" (two
+    embeds, a copy per platform, a depth limit, a type outside the graph, a file it
+    may not see). Run each. Conclude absence only from a search that finished.
+  - **A set built by owner holds more than its comment says.** For each new
+    collection, list what else its filter admits and compare with the comment's
+    claim (`iface_fns`, "the methods it declares", also took methods written with
+    a body on the interface, so real implementers were dropped).
+  - **A made-up value through every reader of the real one.** A stand-in or default
+    must meet every test applied after it, nested ones and their `else` included
+    (a bare `map` stand-in failed `$map`, so the `else` kept it).
+  - **Widening a pattern to a representation two source forms share.** Before
+    accepting a wider encoded form, list every source form that encodes to it and
+    run each (`t:&T` is both `mut x T` and `x &T`, and V's `is` differs on them).
+    Then grep every caller of the widened predicate: splitting the forms at one
+    caller leaves the others (the fix guarded the `$if x is Foo` retype, while
+    `$if x is $map` kept the wider check, and `x &T` lost base's fallback to an
+    unrelated type's method, found by the next pass's full-file read).
+  - **Seeing through one wrapper when the code strips another.** New unwrapping
+    composed with existing stripping: run an alias of each wrapper the stripper
+    takes off (`type Pint = &int` became `int` and met `$int`).
+  - **A new early return ahead of a function's "undecided" exits.** A `return false`
+    added before a `none` path turns "can't tell" into a decision for every test
+    that path used to leave alone. Run a value the function doesn't decide (the fix
+    for `Pint` above also made `$alias` and `$pointer` false, and V holds both).
+  - **A test helper that skips a pipeline stage can't reach what that stage makes.**
+    If a branch depends on a later or earlier stage (ids made unique per file), a
+    fixture through a helper that skips it passes on the bug. Phase R on the buggy
+    code is what shows this: the first test of the alias case above passed there,
+    because `graph_of` doesn't run `disambiguate_ids`.
 
 **Artifact: base-vs-head variation table.** One row per shape: `rule — shape —
 base result — head result — same, or the program that justifies the change, or
