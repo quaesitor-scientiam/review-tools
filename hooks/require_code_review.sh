@@ -63,10 +63,24 @@ deny() {
 # Inside a git checkout of the plugin, "newer" is decided by git, not by file
 # mtimes: a fresh clone or `git pull` writes every file with the same clock and
 # in arbitrary order, so mtimes would produce random blocks. The check is:
-#   - any uncommitted change under skills/ or the corpus, with none under
-#     reference/  -> stale;
-#   - else the latest commit touching skills/ is newer than the latest commit
-#     touching reference/ -> stale.
+#   - any uncommitted change under skills/ or detectors/ (tracked, or a new
+#     untracked file in skills/ or a new top-level detectors/*.v), with no
+#     uncommitted change to the HTML reference itself  -> stale;
+#   - else any commit touching skills/ or detectors/ that comes AFTER the last
+#     commit touching the HTML reference, by ancestry (rev-list), not by
+#     timestamp: a rebase, amend or cherry-pick gives commits the same second,
+#     and a merge can bring in an older-dated skill commit  -> stale.
+# Only the HTML counts as the sync, not the rest of reference/: the corpus
+# (code-review-misses.md, code-review-misses-data.js) lives there too, and a
+# skill change committed with only a corpus edit used to pass. The gate checks
+# that the HTML changed, not that it changed enough: revs 75, 76 and 79 each
+# touched the HTML but left some of their rules off it, which only a review of
+# the page catches. Other untracked files are ignored, since detectors/
+# collects compiled binaries from local runs.
+# Known approximation: an uncommitted HTML edit counts even if the commit will
+# not include it (the hook cannot tell what `git add ... && git commit` will
+# stage), so such a commit passes; the next commit or push then fails the
+# history check, because the skill commit sits after the last HTML commit.
 # Outside a git checkout (plain copy of the plugin) it falls back to mtimes.
 #
 # Scope: only commits/pushes made INSIDE the plugin repo are gated on this. The
@@ -79,20 +93,34 @@ html="$plugin_root/reference/code-review-reference.html"
 misses="${CODE_REVIEW_MISSES_MD:-$plugin_root/reference/code-review-misses.md}"
 plugin_is_git=0
 git -C "$plugin_root" rev-parse --is-inside-work-tree >/dev/null 2>&1 && plugin_is_git=1
+# Same repository when both resolve to one git common dir, so a git worktree of
+# the plugin repo is gated too (its toplevel differs from plugin_root). The
+# queries then run in repo_root, the checkout actually being committed.
 same_repo=0
+if [ "$plugin_is_git" -eq 1 ]; then
+  plugin_common="$(git -C "$plugin_root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+  repo_common="$(git -C "$repo_root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+  [ -n "$plugin_common" ] && [ "$plugin_common" = "$repo_common" ] && same_repo=1
+fi
 [ "$(cd "$plugin_root" && pwd -P)" = "$(cd "$repo_root" && pwd -P)" ] && same_repo=1
 if [ -f "$html" ] && { [ "$plugin_is_git" -eq 0 ] || [ "$same_repo" -eq 1 ]; }; then
   stale=""
   if [ "$plugin_is_git" -eq 1 ]; then
-    dirty_src="$(git -C "$plugin_root" status --porcelain -- skills 2>/dev/null | head -1)"
-    dirty_ref="$(git -C "$plugin_root" status --porcelain -- reference 2>/dev/null | head -1)"
+    html_rel="reference/code-review-reference.html"
+    doc_root="$repo_root"
+    dirty_src="$( { git -C "$doc_root" status --porcelain --untracked-files=no -- skills detectors
+                    git -C "$doc_root" status --porcelain --untracked-files=all -- skills ':(glob)detectors/*.v'
+                  } 2>/dev/null | head -1)"
+    dirty_ref="$(git -C "$doc_root" status --porcelain --untracked-files=no -- "$html_rel" 2>/dev/null | head -1)"
     if [ -n "$dirty_src" ] && [ -z "$dirty_ref" ]; then
       stale="uncommitted change: ${dirty_src#???}"
     else
-      t_src="$(git -C "$plugin_root" log -1 --format=%ct -- skills 2>/dev/null)"
-      t_ref="$(git -C "$plugin_root" log -1 --format=%ct -- reference 2>/dev/null)"
-      if [ -n "$t_src" ] && [ -n "$t_ref" ] && [ "$t_src" -gt "$t_ref" ]; then
-        stale="commit $(git -C "$plugin_root" log -1 --format=%h -- skills) touched skills/ after the last reference/ change"
+      last_html="$(git -C "$doc_root" log -1 --format=%H -- "$html_rel" 2>/dev/null)"
+      if [ -n "$last_html" ]; then
+        late="$(git -C "$doc_root" rev-list -1 --full-history "$last_html..HEAD" -- skills detectors 2>/dev/null)"
+        if [ -n "$late" ]; then
+          stale="commit $(git -C "$doc_root" log -1 --format=%h "$late") touched skills/ or detectors/ after the last change to $html_rel"
+        fi
       fi
     fi
   else

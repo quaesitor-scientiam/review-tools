@@ -114,7 +114,7 @@
 <body>
 
 <h1>/code-review Skill Reference</h1>
-<p class="subtitle">Plugin skill <strong>/review-tools:vreview</strong> at <code style="font-size:11px">${CLAUDE_PLUGIN_ROOT}/skills/vreview/SKILL.md</code> (git repo <code style="font-size:11px">S:\repo\review-tools</code>). Detector scripts live at <code style="font-size:11px">${CLAUDE_PLUGIN_ROOT}/detectors/</code>; run them with <code style="font-size:11px">run_detectors.sh</code>. Generated 2026-11-04, rev 82 (see Changelog tab for the full revision-by-revision story). H2 conformance matrix status: server h2spec baseline EMPTY, 146/146 cases pass.</p>
+<p class="subtitle">Plugin skill <strong>/review-tools:vreview</strong> at <code style="font-size:11px">${CLAUDE_PLUGIN_ROOT}/skills/vreview/SKILL.md</code> (git repo <code style="font-size:11px">S:\repo\review-tools</code>). Detector scripts live at <code style="font-size:11px">${CLAUDE_PLUGIN_ROOT}/detectors/</code>; run them with <code style="font-size:11px">run_detectors.sh</code>. Generated 2026-11-05, rev 83 (see Changelog tab for the full revision-by-revision story). H2 conformance matrix status: server h2spec baseline EMPTY, 146/146 cases pass.</p>
 
 <div class="meta-grid">
   <div class="meta-item"><span class="meta-label">Primary Use</span>Execute a review workflow quickly: scope, derive contracts, fresh-eyes, detectors, scan A-I angles, domain gates, triage, verify, regress.</div>
@@ -526,6 +526,7 @@
         <div class="check-item"><span class="check-bullet">&bull;</span>Sibling parity covers the sibling's CALL PATH, not just its body &mdash; guards in the sibling's callers are part of its contract (rev 18)</div>
         <div class="check-item"><span class="check-bullet">&bull;</span>A verification gate (smoke test, self-check) is a sibling of the build line it approves: every toolchain/config flag must reach it (rev 63)</div>
         <div class="check-item"><span class="check-bullet">&bull;</span>A sibling can share a namespace: when new code allocates a name, id or key, check the names every other allocator in that space has already taken (rev 77)</div>
+        <div class="check-item"><span class="check-bullet">&bull;</span>A sibling&rsquo;s guard can live downstream, in the stage that reads its output: name each fact it only knows later (rev 80)</div>
         <div class="check-item"><span class="check-bullet">&bull;</span>A renamed emitted symbol has callers too: every rendering path that spells the old C name must resolve through the same funnel as the definition (rev 64)</div>
       </div>
       <span class="detector-badge">detect_settings_arm_parity.v</span>
@@ -550,6 +551,8 @@
         <div class="check-item"><span class="check-bullet">&bull;</span>Error-scope consistency</div>
         <div class="check-item"><span class="check-bullet">&bull;</span>Event multiplicity</div>
         <div class="check-item"><span class="check-bullet">&bull;</span>Goroutine lifecycle / resource cleanup</div>
+        <div class="check-item"><span class="check-bullet">&bull;</span>Freeing an arena frees runtime state first touched inside it (closure table, lazy cache); test with freed memory unmapped, in a fresh process (rev 79)</div>
+        <div class="check-item"><span class="check-bullet">&bull;</span>An empty result proves only what its producer can see; a new rule must not overwrite something more precise; a helper given new input was only right for the old (rev 80)</div>
       </div>
       <span class="detector-badge">detect_sibling_arms.v</span>
       <span class="detector-badge">detect_error_scope.v</span>
@@ -688,6 +691,7 @@
         <div class="check-item"><span class="check-bullet">&bull;</span>One row per branch with the mode that reaches it; a GAP names every observable, generated output included; assert an incidental path was taken (rev 76)</div>
         <div class="check-item"><span class="check-bullet">&bull;</span>No row counts without a targeted test and a tried mutation; an untargeted suite run is a GAP (rev 76)</div>
         <div class="check-item"><span class="check-bullet">&bull;</span>An assertion must hold on every target its guard admits: read platform-dependent literals from the code that decides them (rev 77)</div>
+        <div class="check-item"><span class="check-bullet">&bull;</span>Compare base and head on shapes the rule was not written for; each difference gets a compiled program or is a finding; the variation table is a required artifact (rev 80)</div>
       </div>
       <span class="miss-badge" data-angle="J" data-zero-text="newly added &mdash; no misses classified under it yet">? misses from this angle</span>
     </div>
@@ -1311,6 +1315,7 @@
 <div class="tab-content" id="tab-changelog">
   <div class="section">
     <div class="section-title">Revision History</div>
+    <div class="changelog-body"><strong>rev 83</strong> (2026-11-05) &mdash; graphify#160 and #161 (<code>/adversarial-review</code> round 1 on each): #161 had 18 confirmed findings after <code>/vreview</code> passes, 39 of 39 mutants caught, and a real-tree run with none newly unresolved. Angle A gains an empty result proves only what its producer can see, a new rule must not overwrite something more precise, and a helper given a new kind of input. Angle B gains rerouted cases, Angle C readers of a value that used to be empty, Angle I claims of absence. The parity table&rsquo;s guards column now names downstream guards. Angle J gains a required artifact: a base-vs-head variation table, run on shapes the rule was not written for.</div>
     <div class="changelog-body"><strong>rev 82</strong> (2026-11-04) &mdash; vlang/v#31407: three rounds of new defects in a model of GNU as led to its replacement by an allow-list. Angle K gains &ldquo;A model of another tool that keeps failing is the bug&rdquo; and &ldquo;Sweep the real corpus&rdquo;.</div>
     <div class="changelog-body"><strong>rev 81</strong> (2026-11-04) &mdash; vlang/v#31407 round 2: Angle K gains &ldquo;read what the next stage actually emits&rdquo;. <code>/adversarial-review</code> now returns an <code>unverified</code> list and treats a run with failed agents as unfinished, after a usage limit turned 15 real findings into <code>confirmed: []</code>.</div>
     <div class="changelog-body"><strong>rev 80</strong> (2026-11-04) &mdash; vlang/v#31407 (medvednikov, comment 6633807070): six review rounds on the raw-asm clobber check missed four programs the pre-PR build accepted (a named const operand, the <code>flags</code> clobber, an <code>.intel_syntax</code> region, an <code>.if 0</code> body). Every lens hunted the missed undeclared write; none hunted the valid program now refused, and the adversarial CONTEXT handed finders the two wrong premises as facts. New Angle K (acceptance regression) with its table, a High-risk trigger for any new or widened rejection, and an acceptance-regression lens in <code>/adversarial-review</code>. Bug Corpus row: &ldquo;rejection of a program the old build accepted&rdquo;.</div>
@@ -1631,7 +1636,8 @@ var angleData = {
       'Timing or ordering dependency introduced that callers violate',
       'Parallel change in the same diff that makes a downstream callee unsafe',
       '<strong>Sync/mux parity is bidirectional &mdash; run detector:</strong> <code>bash detect_mux_trailers_preserved.v</code>. When two parallel implementations exist (sync <code>H2Conn</code> vs mux <code>H2MuxConn</code>), audit what EACH path does that the other does not &mdash; not just newly-added validation. The mux path dropped response trailers (<code>grpc-status</code>, ...) that the sync path appends to <code>H2ClientResponse.headers</code> (commit a65240ffb0)',
-      'A verification gate (smoke test, self-check) is a sibling of the build line it approves: every toolchain/config flag must reach it (rev 63)'
+      'A verification gate (smoke test, self-check) is a sibling of the build line it approves: every toolchain/config flag must reach it (rev 63)',
+      '<strong>A sibling can share a namespace, not only logic (rev 77).</strong> When new code allocates a name, id, slot or key, list what every other allocator in that space has already taken by the time the new code runs; &ldquo;follows the same pattern&rdquo; does not answer &ldquo;can both pick the same value&rdquo;. vlang/v#31799: the FastC rename mirrored the constant collision pass in shape only and reused a <code>__vf_function_</code> name it had already allocated.'
     ],
     tip: 'Run: <code>grep -rn "fn_name" vlib/</code> to find all call sites. Check both direct callers and transitive callers of exported functions. For parallel sync/mux implementations, diff what each path does in BOTH directions.'
   },
