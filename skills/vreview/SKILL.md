@@ -2336,6 +2336,11 @@ adds or changes:
   property makes the test pass trivially. vlang/v#31799 round 2: compact-mode
   coverage depended on `starts_with('math')` in the compact-naming rule; the
   test now asserts `__vf_function_mathgeom__Pair_sum(i64 ` in each mode.
+- **An assertion of "nothing changed" must read the thing that could change.**
+  A negative case has to put the state under test on the path it asserts about.
+  graphify `resolve-regular-sites`: a test that a branch of values narrows nothing
+  read a field of another variable than the match subject, so it could not fail.
+  Mutate every `or { return }` of the new code, since each is a branch with a row.
 - **No row counts without a targeted test and a tried mutation.** "No mutation
   tried", or an untargeted suite ("all 223 existing tests") as the
   rejecting-side test, is a GAP row, not evidence. vlang/v#31799 pass 1 counted
@@ -2364,6 +2369,38 @@ adds or changes:
   and mutants only test the gates the author thought of. Missed on graphify#161:
   39 of 39 mutants were caught and vlang showed none newly unresolved, then
   `/adversarial-review` confirmed 18 findings, nearly all by this comparison.
+  **Also run these shapes.** Each has one row in the variation table, whatever the
+  rule looks like. Missed by a `/vreview` that wrote this table with 15 rows and
+  passed on the graphify `resolve-regular-sites` branch (2026-11-05); together
+  they are 15 of the 20 findings `/adversarial-review` then confirmed there:
+  - **What else the rule's mark reaches.** A rule written for one case that marks
+    or filters every case (a guard recorded for all `$if T is X` so an interface
+    can use it): run each other value the mark now touches, an alias of the named
+    type and another type parameter in particular, and read what the mark does to
+    the old result, in both the positive and the negative branch.
+  - **A value that fails the rule's condition but passes its shortcut.** Where the
+    code writes "not read here" or "keeps every X", give it an X the program itself
+    rejects (an instance that doesn't implement the interface). A shortcut that
+    was harmless on an unresolved edge is a wrong edge once the rule resolves it.
+  - **Every spelling of the condition, on both sides.** List the forms the parser
+    and the old readers accept (`T`, `T.unaliased_typ`, `mut x T`, `[]Iface`, `|`
+    unions) and run each through every new reader. A parity row that says "guard
+    parsing" without naming each normalization the sibling does is not a row.
+  - **A set the rule accepts with a member it can't answer.** A loop that collects
+    answers for a set and skips what it doesn't know returns a partial answer that
+    reads as complete. Run the mixed set, and grep the real tree for it.
+  - **The name as something other than the rule assumed.** A field of that name,
+    function-typed and data-typed, as well as a method.
+  - **A new key form and everything that clears it.** For each new map or cache,
+    list the forms its writers use as keys (a path, not only a name) and check each
+    invalidator against each form, then rebind the root of a path in a closure and
+    a nested `it`.
+  - **Types named from two modules.** Anything that compares types: first grep for
+    the module's existing comparator (`same_type`) and use it. Written text plus
+    module disagrees on `Foo` and `lib.Foo`, and on `[]string` across modules.
+  After fixing a finding from this list, re-run the real-tree comparison before
+  calling it done. There, two of the fixes broke sites the rule was written for:
+  the corpus diff caught both, the tests caught neither.
 
 **Artifact: base-vs-head variation table.** One row per shape: `rule — shape —
 base result — head result — same, or the program that justifies the change, or
