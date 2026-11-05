@@ -114,7 +114,7 @@
 <body>
 
 <h1>/code-review Skill Reference</h1>
-<p class="subtitle">Plugin skill <strong>/review-tools:vreview</strong> at <code style="font-size:11px">${CLAUDE_PLUGIN_ROOT}/skills/vreview/SKILL.md</code> (git repo <code style="font-size:11px">S:\repo\review-tools</code>). Detector scripts live at <code style="font-size:11px">${CLAUDE_PLUGIN_ROOT}/detectors/</code>; run them with <code style="font-size:11px">run_detectors.sh</code>. Generated 2026-11-04, rev 79 (see Changelog tab for the full revision-by-revision story). H2 conformance matrix status: server h2spec baseline EMPTY, 146/146 cases pass.</p>
+<p class="subtitle">Plugin skill <strong>/review-tools:vreview</strong> at <code style="font-size:11px">${CLAUDE_PLUGIN_ROOT}/skills/vreview/SKILL.md</code> (git repo <code style="font-size:11px">S:\repo\review-tools</code>). Detector scripts live at <code style="font-size:11px">${CLAUDE_PLUGIN_ROOT}/detectors/</code>; run them with <code style="font-size:11px">run_detectors.sh</code>. Generated 2026-11-05, rev 80 (see Changelog tab for the full revision-by-revision story). H2 conformance matrix status: server h2spec baseline EMPTY, 146/146 cases pass.</p>
 
 <div class="meta-grid">
   <div class="meta-item"><span class="meta-label">Primary Use</span>Execute a review workflow quickly: scope, derive contracts, fresh-eyes, detectors, scan A-I angles, domain gates, triage, verify, regress.</div>
@@ -526,6 +526,7 @@
         <div class="check-item"><span class="check-bullet">&bull;</span>Sibling parity covers the sibling's CALL PATH, not just its body &mdash; guards in the sibling's callers are part of its contract (rev 18)</div>
         <div class="check-item"><span class="check-bullet">&bull;</span>A verification gate (smoke test, self-check) is a sibling of the build line it approves: every toolchain/config flag must reach it (rev 63)</div>
         <div class="check-item"><span class="check-bullet">&bull;</span>A sibling can share a namespace: when new code allocates a name, id or key, check the names every other allocator in that space has already taken (rev 77)</div>
+        <div class="check-item"><span class="check-bullet">&bull;</span>A sibling&rsquo;s guard can live downstream, in the stage that reads its output: name each fact it only knows later (rev 80)</div>
         <div class="check-item"><span class="check-bullet">&bull;</span>A renamed emitted symbol has callers too: every rendering path that spells the old C name must resolve through the same funnel as the definition (rev 64)</div>
       </div>
       <span class="detector-badge">detect_settings_arm_parity.v</span>
@@ -551,6 +552,7 @@
         <div class="check-item"><span class="check-bullet">&bull;</span>Event multiplicity</div>
         <div class="check-item"><span class="check-bullet">&bull;</span>Goroutine lifecycle / resource cleanup</div>
         <div class="check-item"><span class="check-bullet">&bull;</span>Freeing an arena frees runtime state first touched inside it (closure table, lazy cache); test with freed memory unmapped, in a fresh process (rev 79)</div>
+        <div class="check-item"><span class="check-bullet">&bull;</span>An empty result proves only what its producer can see; a new rule must not overwrite something more precise; a helper given new input was only right for the old (rev 80)</div>
       </div>
       <span class="detector-badge">detect_sibling_arms.v</span>
       <span class="detector-badge">detect_error_scope.v</span>
@@ -689,6 +691,7 @@
         <div class="check-item"><span class="check-bullet">&bull;</span>One row per branch with the mode that reaches it; a GAP names every observable, generated output included; assert an incidental path was taken (rev 76)</div>
         <div class="check-item"><span class="check-bullet">&bull;</span>No row counts without a targeted test and a tried mutation; an untargeted suite run is a GAP (rev 76)</div>
         <div class="check-item"><span class="check-bullet">&bull;</span>An assertion must hold on every target its guard admits: read platform-dependent literals from the code that decides them (rev 77)</div>
+        <div class="check-item"><span class="check-bullet">&bull;</span>Compare base and head on shapes the rule was not written for; each difference gets a compiled program or is a finding; the variation table is a required artifact (rev 80)</div>
       </div>
       <span class="miss-badge" data-angle="J" data-zero-text="newly added &mdash; no misses classified under it yet">? misses from this angle</span>
     </div>
@@ -1296,6 +1299,7 @@
 <div class="tab-content" id="tab-changelog">
   <div class="section">
     <div class="section-title">Revision History</div>
+    <div class="changelog-body"><strong>rev 80</strong> (2026-11-05) &mdash; graphify#160 and #161 (<code>/adversarial-review</code> round 1 on each): #161 had 18 confirmed findings after <code>/vreview</code> passes, 39 of 39 mutants caught, and a real-tree run with none newly unresolved. Angle A gains an empty result proves only what its producer can see, a new rule must not overwrite something more precise, and a helper given a new kind of input. Angle B gains rerouted cases, Angle C readers of a value that used to be empty, Angle I claims of absence. The parity table&rsquo;s guards column now names downstream guards. Angle J gains a required artifact: a base-vs-head variation table, run on shapes the rule was not written for.</div>
     <div class="changelog-body"><strong>rev 79</strong> (2026-11-04) &mdash; graphify#157 (<code>/adversarial-review</code> round 1): freeing an arena left V&rsquo;s closure table, set up by the first capturing closure inside it, dangling, and a large <code>-prealloc</code> extract segfaulted. Two <code>/vreview</code> runs missed it: the artifact listed what the code copied out, not what the runtime set up. Angle D gains a bullet: list the runtime state first touched inside each arena, and test in the mode that unmaps freed memory, in a fresh process. Bug Corpus row: &ldquo;runtime global set up inside a freed arena&rdquo;.</div>
     <div class="changelog-body"><strong>rev 78</strong> (2026-11-03) &mdash; The narrative miss corpus moved from Claude project memory to <code>reference/code-review-misses.md</code>, because memory does not sync between machines and the two stores had drifted. Rows only in <code>code-review-misses-data.js</code> are carried over in a section of their own. <code>/phase-r</code>, <code>/vreview</code>, <code>/luna-respond</code> and the commit gate now point at the repo file; the gate&rsquo;s mtime check on it now applies only to a plain copy of the plugin.</div>
     <div class="changelog-body"><strong>rev 77</strong> (2026-11-03) &mdash; vlang/v#31799 pullrequestreview-5759552885 (medvednikov, two findings on the FastC rename, both after the rev 76 rules landed). P2: the rename reused a <code>__vf_function_</code> name already allocated by the constant collision pass; sibling parity ran but compared shape only, so Phase 0 step 7 gains &ldquo;the sibling can share a namespace&rdquo; plus one parity row per allocator. P3: the collision test asserted <code>i64</code> for <code>int</code>, which fails on linux/x86; Angle J gains &ldquo;an assertion must hold on every target its guard admits&rdquo;. No detector: neither shape is visible to a single-file detector without knowing the namespace or the target set. Two Bug Corpus rows added.</div>

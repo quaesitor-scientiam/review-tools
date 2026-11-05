@@ -353,6 +353,15 @@ does. Standard and Lite keep the per-angle cap and normal N/A discretion.
      `vschannel_h2_do`'s body faithfully but missed the ALPN gate living in
      the sibling's CALLER (`vschannel_ssl_do`) — a body-only parity check
      has no column that would have caught it; this one does.
+     **A sibling's guard can also live DOWNSTREAM, in the stage that reads its
+     output, so list those here too.** If new code decides at an earlier stage
+     than the sibling does, name each fact the sibling only knows later, and
+     keep the decision for that stage. Missed on graphify#161 (5 findings): the
+     `xs.map(<selector>)` recipe returned at extraction, while its siblings
+     `mapit:` and `mapto:` are steps `follow_steps` applies after checking the
+     receiver is an array. A program's own `Stream.map` was typed as an array,
+     and `[]T` lost array-ness. The parity row read "`kids.len == 2`, composes
+     steps": it compared what the paths produce, not what the new one drops.
    - **matched behavior** — what the new code correctly mirrors. This is
      positive evidence the comparison actually happened, not just a
      negative-findings list.
@@ -681,6 +690,30 @@ platform makes this wrong?
   every index level let `get().table[0][1](3)` reach the global unique-name
   tier as a method call `table`; a `starts_with('fn')` gate admitted a global
   typed `fnv1a.Sum` as callable.
+- **An empty result proves only what its producer can see.** When new code
+  concludes something from an empty or missing result ("no instances", "no
+  callers", "nothing matched"), read the code that fills it and list everything
+  it skips. Each skipped case reaches the new branch with the opposite truth.
+  If "none" and "could not tell" can differ, track them apart. Missed on
+  graphify#161 (adversarial round 1, 2026-11-04, 2 findings): an empty instance
+  list made `str()` on a `T` undeclared, but `collect_call_sites` records only
+  parameters typed `T`, `[]T` or `fn () T`, so `g_map({'a': Foo{}})` with a
+  `map[K]V` parameter called `Foo.str` and was claimed as V's. The inline review
+  had noted the case as a limit, imagining only callers outside the tree.
+- **A new rule must not overwrite something more precise.** For each new line
+  that replaces a value, type or state, ask what it holds before that line, for
+  every input and not just the motivating one. If it can already be more exact
+  than the new fact, the new fact is a fallback, not a replacement. When a
+  comment gives the reason for an exemption, check who else that reason covers.
+  Missed on graphify#161 (4 findings): `$if v is $map` replaced any variable's
+  type with builtin `map`, so `type Own = map[string]int` lost its own `clone`
+  and `map[string]Foo` its elements. The comment said an alias of a map has its
+  own methods, and exempted only a variable typed `T`.
+- **A helper given a new kind of input was only ever right for the old kinds.**
+  When new code passes a helper a form it never received before, read the helper
+  against that form. Missed on graphify#161: `fn_return` took the text after the
+  last `)`, right for a parameter's function type, wrong for a literal's
+  `fn () fn () Foo` (`Foo`) and `fn () (int, Foo)` (none).
 - **A recursive walk that calls itself twice on the same child is
   exponential in nesting depth.** In any tree/AST walker, when a new branch
   re-calls the walker on a child that an earlier line already walked (a
@@ -697,6 +730,11 @@ then find where the new code re-establishes it. If you can't, that's a candidate
 - Removed guard → now-reachable bad state
 - Dropped error path → silent failure on a reachable code path
 - Narrowed validation leaving a gap
+- Rerouted case: when a value moves from one branch to another (an added member
+  of an `in [...]` list, a new early return), list the forms the old branch
+  handled and confirm the new one handles each. No line is deleted, so read the
+  branch it left. Missed on graphify#161 (2 findings): adding `.lock_expr` to the
+  tuple path lost the `#i` path that typed `a, b := rlock s { s.pair() }`.
 
 ### Angle C — Cross-file caller/callee trace
 For each changed function, grep for its callers. Does the change break a
@@ -838,6 +876,16 @@ two findings): qualifying selective-import static calls changed `Edge.to`, and
 `call_result` (which types `x := Foo.new()`) and `generated_enum_mod` both
 took the qualified path and lost what the bare form had resolved; only the
 resolver the diff was written for got a compensating fallback.
+
+**A value that used to be empty has readers too: the ones that test for empty.**
+When an expression that returned nothing now returns a weak answer, grep for
+`!= ''`, `or {`, "first non-empty" loops and similar, as well as readers of the
+new text. Those readers took the empty value as "ask someone else". Also read
+what the weak answer does when followed further, and check any comment claiming
+it is harmless. Missed on graphify#161 (2 findings): a map literal stating no
+type became bare `t:map`, so `map_entries_recipe`'s first-non-empty loop stopped
+on it and hid a later entry's `Foo`; and its `keys().first()` reached builtin's
+erased `voidptr`, under a comment saying its methods don't depend on the types.
 
 ### Angle D — Full-file holistic (the Codex angle)
 **This angle reads the whole file, not just the diff.** It is the primary fix for
@@ -2182,6 +2230,11 @@ changes:
   4 of `/codex-respond`) only fires on BEHAVIORAL changes, so a doc-only
   clarification slips past it with no test to catch the resulting
   inconsistency.
+- **A claim that something doesn't exist is a search result: search for the
+  concept.** Before writing "X has none" in a comment or doc, grep the concept
+  and read the hits, rather than one guessed name. Missed on graphify#161:
+  "`params` has none builtin declares" came from a grep for `MethodParam`, and
+  builtin declares `FunctionParam`.
 - **A comment that hands a guarantee to another function is a claim about
   THAT function — read it.** "X stays private (test_private)", "bounded by
   the caller's cap", "validated upstream" each name a delegate. Open the
@@ -2295,6 +2348,24 @@ adds or changes:
   pullrequestreview-5759552885, P3): the collision test asserted `i64` for
   `int`, true on the 64-bit host and false on linux/x86; it now reads
   `fastc_output_c_type('int')`, with a generate-only linux/x86 case.
+
+- **Compare base and head on variations, not only your own tests.** For a change
+  to what a program's input yields (a resolver, extractor, generator or parser),
+  write down the shapes the rule was not written for, then run each on BOTH base
+  and head and read the difference. At least: a user type with a method named as
+  a builtin's; an alias of the builtin type with its own method; a concrete and a
+  generic value; a nested and a multi-value form; a sibling that states less
+  coming first; a value the rule's own guard exempts; and a call the existing
+  collector can't read. Every difference gets a compiled program showing head is
+  right, or it is a finding. This is cheap: one fixture and two builds. A real
+  tree doesn't replace it, since it only exercises the shapes it happens to hold,
+  and mutants only test the gates the author thought of. Missed on graphify#161:
+  39 of 39 mutants were caught and vlang showed none newly unresolved, then
+  `/adversarial-review` confirmed 18 findings, nearly all by this comparison.
+
+**Artifact: base-vs-head variation table.** One row per shape: `rule — shape —
+base result — head result — same, or the program that justifies the change, or
+finding`. State "N/A — reason" for a diff that changes no program's output.
 
 **Artifact: test discrimination table.** One row per new gate, clause, branch
 or choice: `condition — mode/configuration reaching it — passing-side test —
@@ -2517,6 +2588,9 @@ Absence-search checklist:
 
 Test discrimination table (Angle J):
 <condition — mode/configuration reaching it — passing-side test — rejecting-side test or GAP (observables considered) — plausible-wrong mutation — result> (or "no new conditions")
+
+Base-vs-head variation table (Angle J):
+<rule — shape — base result — head result — same / program justifying the change / finding> (or "N/A — reason")
 ```
 
 Every artifact above is required output, not optional detail — an item left
