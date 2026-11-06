@@ -559,6 +559,15 @@ platform makes this wrong?
   later check assumes a clean value, verify the raw string first (exact length,
   digit-only charset). Missed on PR #27413: `:status` validated via `f.value.int()`
   accepted `'200 OK'` as 200 and delivered a malformed response as success.
+- **A missing map key reads as the value type's zero value (V-specific):** `m[k]`
+  on a `map[K]Enum` returns the enum's first member when `k` is absent, not an
+  error. A guard written as `m[k] != .some_kind` therefore treats an undeclared
+  key as that first member. Any check that reads a map of enum kinds (declared
+  kinds, flags, categories) must test membership (`k in m`) before comparing the
+  value. Missed on the fastc `$new(T)` lowering (`declared_kinds`, first member
+  `struct_`): `$new(int)` passed the struct guard and built a value that the
+  guard was meant to reject. Grep every `m[...] ==`/`!=` on a map whose value
+  type is an enum and confirm each one is guarded by `in` or is provably keyed.
 - **Guard completeness (else-branch correctness):** For every new `if`/guard the
   diff introduces, name the invariant it enforces, then trace what happens when the
   guard rejects the value. Does the else branch leave the caller in a well-defined
@@ -2296,6 +2305,21 @@ adds or changes:
   prefix, the other branch, a dropped clause — and confirm a test fails for
   each. A fix that survives "plausible wrong" mutations is pinned; one that
   only fails `if false` is not.
+- **A rejection test must observe the rejection, not a successful build.** For
+  a gate that refuses an input, assert the failing exit AND the diagnostic text.
+  A test that only checks the program runs passes when the gate is missing,
+  because the input then compiles through another path. Before writing the
+  assertion, build the refused input on the buggy code and confirm it actually
+  fails there; if it builds and runs, the test is pinning the wrong thing.
+  Missed on the fastc `$new(int)` case: the build succeeded and printed `0` before
+  the guard fix, so an assertion on the run output would have been green.
+- **Test the consumer that reads the type, not only the producer.** A value whose
+  static type comes from a new lowering (a pointer, an alias) must be exercised
+  through every consumer that needs that type: a printing or interpolation
+  context, a field access, a deref. Bind it to a local first, because an
+  unbound expression can lose its type on a path the test never takes. Missed on
+  the fastc `$new` change: `q := $new(Foo); println((*q).a)` failed to compile
+  while the assert-only and return-position tests passed.
 - **Mutate the writers, not only the reader.** When the fix keeps a counter or
   invariant consistent at N sites (resets, re-syncs, guards), a mutation of
   the site that READS the state proves the fixture notices a broken read; it
