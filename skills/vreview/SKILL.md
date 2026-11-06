@@ -2308,9 +2308,10 @@ adds or changes:
 - **A rejection test must observe the rejection, not a successful build.** For
   a gate that refuses an input, assert the failing exit AND the diagnostic text.
   A test that only checks the program runs passes when the gate is missing,
-  because the input then compiles through another path. Before writing the
-  assertion, build the refused input on the buggy code and confirm it actually
-  fails there; if it builds and runs, the test is pinning the wrong thing.
+  because the input then compiles through another path. Run the test on the buggy
+  code and confirm the test fails there. The refused input itself usually builds
+  there, since the gate is what's missing, so only the exit and the diagnostic
+  tell the two versions apart.
   Missed on the fastc `$new(int)` case: the build succeeded and printed `0` before
   the guard fix, so an assertion on the run output would have been green.
 - **Test the consumer that reads the type, not only the producer.** A value whose
