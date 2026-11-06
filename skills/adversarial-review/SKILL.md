@@ -240,6 +240,13 @@ summary in the response is enough — this skill doesn't mandate a specific
 output format beyond "confirmed findings only, clearly separated from
 refuted/unconfirmed ones."
 
+**Log the round's misses when the round closes, not when the batch does.** Each
+confirmed finding is a miss by the inline review before it: add its row to
+`reference/code-review-misses.md` (existing rule, why it failed, new enforcement), and any
+new rule with its reference page entry, as `/vreview` Phase R step 6 requires. Before
+writing a rule, grep the skill for it: most misses come from a rule that exists and wasn't
+applied, which is a row, not a new rule.
+
 ## Maintenance — where this skill lives
 
 This skill ships in the `review-tools` plugin (one git repository, installed at

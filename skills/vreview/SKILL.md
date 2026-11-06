@@ -2481,6 +2481,27 @@ adds or changes:
     fixture through a helper that skips it passes on the bug. Phase R on the buggy
     code is what shows this: the first test of the alias case above passed there,
     because `graph_of` doesn't run `disambiguate_ids`.
+  **And these, from the graphify plain-names batch** (2026-11-05 to 06, rounds of 22,
+  13, 20 and 12 confirmed findings):
+  - **A node the parser wrote has no source of its own.** Code that reads the file's
+    text at a node's position assumes the node came from that text. List what the parser
+    lowers or generates into that node kind, and run each in every syntactic position:
+    a statement and an expression can lower differently. `literal_captures` read
+    `fn [a, b]` at a literal's offset, and a `$tmpl` in an expression is a literal the
+    parser writes (vlib/v/parser/tmpl.v), so every local was dropped. The risk had been
+    written down and tried only on `return $tmpl(...)`, which lowers another way. A
+    reader that finds no such text must leave the old result alone, not take "nothing".
+  - **A gate on one path, and the tier the call falls to.** A rule that stops one path
+    hands the input to whatever comes next. List every later tier that can give the same
+    answer and run the rejected input through to the end. `conversion()` returned none
+    because the caller could see functions, then a later tier linked the type anyway when
+    the lookup couldn't pick between two copies. Grep every caller of the helper the gate
+    wraps (`type_conversion`), not only the path you changed.
+  - **A tree with two copies of what the program assumes is one.** A real-tree comparison
+    only exercises what that tree holds. Also run a root with two clones of a project or a
+    vendored copy of a core module. Dropping an unseen candidate from a tier turned "two
+    copies, leave it open" into "one left, link it": 164 false edges between the clones in
+    S:/vProjects/native-backend, while the V tree alone showed none.
 
 **Artifact: base-vs-head variation table.** One row per shape: `rule — shape —
 base result — head result — same, or the program that justifies the change, or
@@ -2495,6 +2516,13 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   `movl %1, %0` in `const_operands()` name `other` instead of the constant. The
   const-skip mutant was still killed, by lines 86 and 88 to 91, never by line 85. For
   operands written by position, count them again after any edit to the operand list.
+- **Read a run's result past its noise, not its first lines.** A filter that keeps the
+  first N lines of a compiler's output shows warnings and hides the assertion, so a real
+  failure reads as an environment failure, or the reverse. Filter the noise out by pattern,
+  and print the count of what was dropped. graphify plain-names round 4: `Select-Object
+  -First 3` showed only a C warning on eight tests that had in fact run, and another run
+  credited every mutant to an unrelated test that was already failing, because the control
+  wasn't enforced by the script: make the script stop when the control fails.
 
 **Artifact: test discrimination table.** One row per new gate, clause, branch
 or choice: `condition — mode/configuration reaching it — passing-side test —
@@ -2581,7 +2609,13 @@ For every diff that adds or widens a rejection:
   confirmed defects across three rounds. The allow-list that replaced it is about
   half the size, and its next round found 14 narrower gaps, closed by tightening the
   list or disclosed as limits. A diagnostic can always say less. State what the
-  silence gives up in the PR.
+  silence gives up in the PR. The rule binds at the second round even when each finding has a one-clause fix, and it
+  covers a resolver or analyzer as well as a diagnostic: anything that picks one reading
+  of what another tool would do. graphify's call resolver modelled V's order between a
+  function, a type and a const through 22, 13 and 20 confirmed findings, each with a compiled
+  program behind it. Replacing the model with "only where the caller can see no function of
+  the name" removed the clauses, changed none of the 14 real edges it existed for, and
+  brought differences from base on the fixtures from 102 to 40. Disclose what it gives up.
 - **Sweep the real corpus.** Run a new rejection over every real use in the tree
   (`git grep` the construct, one checker run per file) before reviewing it by hand.
 - **The sibling may share the bug.** Sibling parity (Phase 0 step 7) reported
