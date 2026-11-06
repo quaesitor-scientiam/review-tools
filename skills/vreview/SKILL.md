@@ -2421,7 +2421,10 @@ adds or changes:
     Then grep every caller of the widened predicate: splitting the forms at one
     caller leaves the others (the fix guarded the `$if x is Foo` retype, while
     `$if x is $map` kept the wider check, and `x &T` lost base's fallback to an
-    unrelated type's method, found by the next pass's full-file read).
+    unrelated type's method, found by the next pass's full-file read). Run every
+    form at every caller against base, and again after each fix to one of them
+    (the fix restored `x &T` only, so `mut x T` still linked `Own.clone` where V
+    calls builtin's, found by the rerun; the fix that held matched base).
   - **Seeing through one wrapper when the code strips another.** New unwrapping
     composed with existing stripping: run an alias of each wrapper the stripper
     takes off (`type Pint = &int` became `int` and met `$int`).

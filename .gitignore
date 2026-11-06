@@ -2,3 +2,6 @@
 Thumbs.db
 *.tmp
 /tests/_work/
+/detectors/*.exe
+/detectors/*.exe.manifest
+/detectors/.*.v3cc.*/
