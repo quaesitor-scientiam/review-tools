@@ -240,6 +240,14 @@ summary in the response is enough — this skill doesn't mandate a specific
 output format beyond "confirmed findings only, clearly separated from
 refuted/unconfirmed ones."
 
+**Sort the findings when the code approximates another tool** (`/vreview` hard rule 3).
+Each row says blocking or limit, and why. Blocking: a regression from base with a real
+occurrence, a wrong output on a real tree, or a false claim in a doc or comment. A limit goes
+into the project's docs and triggers no further round. Downgrading a regression names the
+trees searched and the pattern used; a finder's "I didn't find it" with no search stays
+blocking. So brief finders to say whether base was right and where the shape occurs, and
+refuters to judge the claim, not its severity: sorting is the reviewer's, in the open.
+
 **Log the round's misses when the round closes, not when the batch does.** Each
 confirmed finding is a miss by the inline review before it: add its row to
 `reference/code-review-misses.md` (existing rule, why it failed, new enforcement), and any

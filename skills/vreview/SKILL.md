@@ -48,6 +48,21 @@ memory, because memory does not sync.
    until a pass has no confirmed findings → only then `/adversarial-review` → fix →
    back to `/vreview`. Repeat until both are clean in the same round. The inline pass
    is far cheaper; every defect it catches is one the agent swarm need not.
+   **Where the code approximates another tool, "clean" can't be reached, so the loop
+   stops at a round with no blocking finding.** That covers a resolver, analyzer or
+   indexer that picks one reading of what a compiler would do from less than it knows:
+   some valid program always breaks the approximation. State the classification, and why,
+   before the first adversarial round; ask the user when in doubt. It never covers code
+   that rejects or accepts input, handles untrusted data, or touches protocol, crypto,
+   concurrency or memory lifetime: those stay "until both are clean". Blocking means:
+   a regression from base with a real occurrence; a wrong output on a real tree; or a false
+   claim in a doc or comment. Every other confirmed finding is logged as a disclosed limit
+   in the project's docs and doesn't trigger another round. Downgrading a regression takes
+   a search: name the trees searched and the pattern used, or it stays blocking. A fix for
+   a blocking finding still goes back through this loop. On graphify `resolve-remaining`
+   (rev 91) four rounds confirmed 22, 13, 20 and 12 findings and ~20M subagent tokens, the
+   last three commits changed no edge of the V tree, and one of round 4's 12 occurs in a real
+   tree: the 164 false edges between two clones, which is what the review is for.
 
 ## Plugin paths
 This skill ships in the `review-tools` plugin (git repo, installed at user scope).
