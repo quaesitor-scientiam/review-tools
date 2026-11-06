@@ -2225,6 +2225,28 @@ Ask, for every file/function touched or newly introduced:
   candidate, not a bug: confirm it by naming where each environment input
   enters, for example a cache directory that already carries it.
 
+- **Does a broad delete's target contain something another pass decided to
+  keep?** A recursive delete of a parent folder undoes every protection applied
+  below it. For each `rmdir_all` or equivalent, list what that folder can hold
+  that some other pass keeps (a held lock, an in-use entry, a pinned file), from
+  every configuration that can place it there: the configured path as well as
+  the default one. Also list every other folder the
+  same run clears, and every keeper that can sit inside another keeper. When a
+  finding names one path, the fix protects the list that path came from, and
+  its test takes the path as a parameter. Missed on vlang/v#31848 (medvednikov,
+  comment 6688815559, reviewed `fa9eed702f`): the fix for the same bug one round
+  earlier exempted the literal `<VTMP>/tools`, while `tool_cache_wipe_targets()`
+  in the same file also returns `VTOOLS_CACHE_DIR`, so
+  `VTOOLS_CACHE_DIR=<VTMP>/custom-tools` still lost the stage and lock of a live
+  build while the output said it had kept them. The same shape held for
+  `<VCACHE>/tools`, `<V3CACHE>/tools` and a root inside another root. A list from
+  the environment was not enough either: the next round removed the only spelling that
+  led to a root, so the wipe after it deleted the build. Ask what marks the thing on
+  disk, and find it there. Regression test:
+  `test_wipe_cache_keeps_a_live_build_wherever_the_tool_root_is` in
+  `cmd/tools/vwipe-cache_test.v`. No detector: which folders can hold what is a
+  fact about the configuration, not a syntactic pattern.
+
 **Artifact: absence-search checklist.** One line per question above: the
 requirement/check/path considered, whether it's present (`file:line`) or a
 GAP, and — if a GAP — whether it was fixed this review or logged. State
