@@ -83,6 +83,14 @@ the old code accepted for which X is false"). On vlang/v#31407 three rounds
 inherited exactly those two sentences as facts from CONTEXT, and both were the
 bugs the maintainer then found (vreview Angle K).
 
+**Point finders at the source of a list, never at a closed list.** A vocabulary written
+into `CONTEXT` ("local, parameter, global, enum") bounds what finders try. Name the code
+that defines it and ask them to derive it, including what a spelling-based gate lets
+through. On #31407 round four got such a list with no literal in it, and `"r" (true)`
+survived all four rounds until the maintainer tried it. Code changed after the last
+round has had no adversarial review: say so when reporting, as it was the source of the
+`"A"` input finding on the same PR.
+
 ## Step 2 — Pick lenses
 
 Four lenses cover most changes and are the default starting set — adapt,

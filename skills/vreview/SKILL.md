@@ -32,6 +32,14 @@ memory, because memory does not sync.
    artifacts let five `/adversarial-review` rounds (~14M subagent tokens) find 35
    defects; 6 of them were already covered by rules here (the parity table alone
    would have compared `generated_enum_mod` with `resolve_qualified_callee`).
+   **A filled-in artifact is not evidence by itself.** Every "pass", "matches" or
+   "handled by" cell names what was run or read: the command and its result, or the
+   `file:line` opened during this review. A cell that repeats what the author already
+   believes is unverified; mark it so. A row holding several entries is several
+   unverified rows. On vlang/v#31407 (rev 88) one row read "const untyped, typed, bool,
+   enum, sizeof, expr ... pass", and another said "`A` still not listed, handled by pair
+   logic" although that logic reads outputs only. Both hid a finding the maintainer
+   then reported.
 2. **Never skip a required step silently — ask first.** If any required step of this
    skill, of `/adversarial-review`, or of a standing rule (an artifact, a rerun,
    Phase R, a test) looks unnecessary or too costly, stop and ask the user before
@@ -338,6 +346,17 @@ does. Standard and Lite keep the per-angle cap and normal N/A discretion.
    shape. The constant pass had already allocated `__vf_function_<name>`, so the
    rename reused it and the generated C had conflicting types. Add one row per
    allocator in that space, stating which names the new code's check can see.
+   **A helper called for a new purpose gets its own row.** Reusing a function on new
+   input (outputs to inputs, one section to another, a rename that widens its role) is
+   new code even when no line of the helper changed. Its old callers may have handled
+   part of the input beside it, so list every input form the new purpose admits and
+   name what handles each. Then grep the fixtures for those forms: a fixture that
+   expects the old result for a form the new rule now covers is a question to answer,
+   not a settled result. Missed on vlang/v#31407 (medvednikov, comment 6686391495): the
+   fixed-input exemption reused the fixed-output helper, which leaves `A` to the pair
+   logic, and that logic reads outputs only. So a `u128` input bound through `"A"` got
+   an impossible suggestion to clobber `rax`, while
+   `asm_raw_clobber_pair_undeclared.vv:54` already showed an `"A"` input being reported.
    **Artifact: sibling parity table.** One row per new type/function/branch
    checked against a sibling, six columns:
 
@@ -2467,11 +2486,21 @@ adds or changes:
 base result — head result — same, or the program that justifies the change, or
 finding`. State "N/A — reason" for a diff that changes no program's output.
 
+- **A killed mutant shows the clause matters, not that a given line tests it.** For
+  each mutant, record the fixture lines that failed, then check that every line written
+  to pin that path is among them. A line that never fails tests nothing, whatever its
+  comment says. Run an unmutated control through the same build and test path first,
+  and confirm the mutation changed the intended site, not an earlier textual match.
+  Missed on vlang/v#31407 (medvednikov, comment 6686391495): adding a second output made
+  `movl %1, %0` in `const_operands()` name `other` instead of the constant. The
+  const-skip mutant was still killed, by lines 86 and 88 to 91, never by line 85. For
+  operands written by position, count them again after any edit to the operand list.
+
 **Artifact: test discrimination table.** One row per new gate, clause, branch
 or choice: `condition — mode/configuration reaching it — passing-side test —
 rejecting-side test (or GAP, with the observables considered) — plausible-wrong
-mutation tried — result`. State "no new conditions" explicitly when the diff
-adds none.
+mutation tried — result — fixture lines that failed`. State "no new conditions"
+explicitly when the diff adds none.
 
 ### Angle K — Acceptance regression (what the old build accepted that this diff now rejects)
 
@@ -2504,6 +2533,19 @@ For every diff that adds or widens a rejection:
   entry state whether the new check handles it, ignores it correctly, or
   misclassifies it. An entry the new check never considers is a candidate,
   not a pass.
+- **A gate that tests spelling admits more than its name says.** When a condition
+  decides from text or shape (`is_ident`, `starts_with`, a character class, a regex),
+  list what else has that spelling, then read how the real AST classifies each one:
+  keywords, literals, type names, enum values. Each is a vocabulary entry with its own
+  program. Prefer deciding from the AST node. Missed on vlang/v#31407 (medvednikov,
+  comment 6686391495): `inline_asm_is_ident` was treated as "a named variable", but
+  `true` and `false` pass it too, so `"r" (true)` was rejected as 8-bit. Round two had
+  already shown `const flag = true` as a C `int`; the fix covered constants, and the
+  same reasoning was never tried on the bare literal.
+- **Build the list from the source, then keep it open.** Name the old-code location
+  each entry came from, one entry per row. A list written from memory, or handed to
+  finders in a prompt, repeats the author's blind spots: #31407's round-four finders
+  got a list of binding kinds with no literal in it, and none tried one.
 - **Build the pre-PR program, not the test.** For each vocabulary entry, write
   the smallest valid program that uses it and that the old build accepts; run
   it through both builds (or through the checker's fixture mode when the host
@@ -2548,10 +2590,11 @@ For every diff that adds or widens a rejection:
   this angle is evidence of consistency, not of correctness: run the
   vocabulary list against the sibling too.
 
-**Artifact: acceptance-regression table.** One row per vocabulary entry:
-`entry — where the old code accepts it (file:line) — valid program exercising
-it — old build result — new build result — disposition (pass / false positive
-/ out of scope, with reason)`. State "no new or widened rejection in this diff"
+**Artifact: acceptance-regression table.** One row per vocabulary entry, never
+several entries in a row: `entry — where the old code accepts it (file:line) — valid
+program exercising it — old build result — new build result — disposition (pass /
+false positive / out of scope, with reason)`. A result cell not produced by running
+the program this review is a GAP. State "no new or widened rejection in this diff"
 explicitly when the angle does not apply; a diagnostic-adding diff with this
 table marked N/A is itself a GAP.
 
@@ -2769,7 +2812,7 @@ Absence-search checklist:
 <requirement/check/path — present (file:line) or GAP — fixed/logged> (or "none applicable to this diff")
 
 Test discrimination table (Angle J):
-<condition — mode/configuration reaching it — passing-side test — rejecting-side test or GAP (observables considered) — plausible-wrong mutation — result> (or "no new conditions")
+<condition — mode/configuration reaching it — passing-side test — rejecting-side test or GAP (observables considered) — plausible-wrong mutation — result — fixture lines that failed> (or "no new conditions")
 
 Acceptance-regression table (Angle K):
 <vocabulary entry — where the old code accepts it (file:line) — valid program — old build result — new build result — disposition> (or "no new or widened rejection in this diff")
