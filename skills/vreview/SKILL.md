@@ -372,6 +372,12 @@ does. Standard and Lite keep the per-angle cap and normal N/A discretion.
    logic, and that logic reads outputs only. So a `u128` input bound through `"A"` got
    an impossible suggestion to clobber `rax`, while
    `asm_raw_clobber_pair_undeclared.vv:54` already showed an `"A"` input being reported.
+   **Attribute placement is a parity axis.** For every element kind a parser decides (named
+   field, embedded field, section switch, comptime block), emit one row for each attribute
+   position the spelling allows (leading before the name, trailing after the type, after the
+   default) and state, for each flag the attribute can carry (`skip`, `required`), where the
+   flag is recorded and what refuses it. A position with no row is a gap, not an omission.
+
    **Artifact: sibling parity table.** One row per new type/function/branch
    checked against a sibling, six columns:
 
@@ -2588,6 +2594,22 @@ enumerated, because every lens was pointed at the new check and none at the
 old acceptance surface.
 
 For every diff that adds or widens a rejection:
+
+- **Acceptance widening is a regression surface too, and the reference is the target base's
+  parser, built fresh.** A backend that accepts a construct the frontend refuses is a
+  defect when the target base's own diagnostics refuse it: grep the diagnostic text in the
+  parser (for example `cannot use attributes on embedded structs`) and build the reference
+  from the PR base, not from the worktree's own binary, which can be older than the base.
+  Do not exclude widening from scope on the grounds that the program is "invalid" until the
+  parser diagnostics for that input have been checked. vlang/v PR 31981 (2026-11-07): the
+  fastc change accepted `Inner @[json: '-']` on an embedded field; a reviewer pointed at the
+  parser's diagnostic. The review had scoped widening out, and the parity check ran against a
+  stale binary, so neither step read the parser.
+- **Refusals must cover every entry point to a construct, not only the common one.** When a
+  refusal applies to a construct (embedded fields refuse @[skip] and @[required]), list each
+  spelling that reaches it (trailing, default-carrying, leading) and check each one refuses.
+  A leading flag that is dropped silently on an embedded field is the same defect as a
+  trailing one that is refused. PR 31981, finding 2.
 
 - **Enumerate the accepted vocabulary first, from the code, not from memory.**
   Find every list the OLD code uses to accept or classify this input: keyword

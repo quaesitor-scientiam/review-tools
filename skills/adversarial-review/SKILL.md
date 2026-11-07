@@ -143,6 +143,13 @@ refuters must try to make the program PASS on the old build, not to argue the
 new check is reasonable. Six rounds on vlang/v#31407 ran without this lens and
 missed four such programs (vreview Angle K has the list).
 
+**Do not exclude widening from scope.** A construct the backend accepts and the target
+base's frontend refuses is a candidate, and it stays one when the program looks invalid. The
+refuter checks the frontend's diagnostics for that input (grep the diagnostic text in the base)
+and reproduces the result with a binary built from the base revision, not from the working tree.
+Context sentences such as "widening for an invalid program is not a defect" are claims to test,
+not premises. vlang/v PR 31981 (2026-11-07) lost a round to this exclusion.
+
 Scale lens count and verification strictness to the change's size and
 stakes: 3-4 lenses / 3 refuters per finding for a small, self-contained diff;
 5+ lenses / 5 refuters with majority vote for something large, security-
