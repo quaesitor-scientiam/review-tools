@@ -1542,6 +1542,31 @@ diff. State "none" for a matrix with no applicable rows (e.g. a diff with
 no condition variables gets "none" for Matrix 2) rather than omitting it —
 an omitted matrix and a genuinely empty one must not look the same.
 
+**Run the race detector on the tests the concurrent code reaches (rev 95).** When the
+diff touches threads, locks, channels, atomics or a field shared between threads, run
+`v -race test <the test files that exercise the changed code>` and record the command,
+the exit code and the races reported. `-race` builds with ThreadSanitizer. A test file
+that hits a data race is marked `FAIL` even when its asserts pass, the runner exits 1, and
+the output holds `WARNING: ThreadSanitizer: data race` with the V `file:line` of both
+accesses (a race-built program run directly exits 66 instead). Read the output for that
+warning rather than trusting the exit code, since a plain test failure also exits 1. Each
+race is a Matrix 1 candidate, triaged like any other. It builds only on Linux, macOS,
+FreeBSD and NetBSD; native Windows refuses (`` `-race` is not supported on windows/amd64 ``),
+and so does Clang itself (`-fsanitize=thread` is unsupported for both the windows-gnu and
+windows-msvc targets), so on Windows run it in WSL
+(`wsl -e bash -lc 'cd <checkout> && v -race test <files>'`) with a `v` built from the same
+commit as the checkout (compare `v version`). State its limits with the result: it finds
+only races the run actually interleaves, so a clean run does not clear Matrix 1; it cannot
+see a missed or late wake, or a TOCTOU across a released lock, so Matrices 2 and 3 stay
+manual; race builds drop the GC and `-prealloc`, so code that depends on them runs
+differently; and code behind `$if windows` (SChannel, Win32 threading) never runs in WSL,
+so list it as not race-checked rather than covered. Checked 2026-11-07 in WSL: a test whose
+two threads do an unguarded `c.n++` was marked FAIL with exit 1 and both stacks at the
+increment; the same program built and run directly exited 66; native Windows refused it.
+
+**Artifact: race detector run.** The command, where it ran, the exit code and the races
+reported; or "N/A — no concurrent code in this diff"; or "not run — reason".
+
 For each shared data structure touched by the diff, enumerate every writer and
 every reader. For each writer/reader pair, verify they are always separated by the
 declared lock. Pay special attention to:
@@ -2941,6 +2966,7 @@ Concurrency matrices (Angle F):
 Matrix 1 (shared field — readers — writers — lock): <rows> (or "none")
 Matrix 2 (wait predicate — all mutators — wake/broadcast path): <rows> (or "none")
 Matrix 3 (action sized under lock — committed under same protection?): <rows> (or "none")
+Race detector run (Angle F, rev 95): <command — where it ran — exit code — races reported> (or "N/A — no concurrent code in this diff", or "not run — reason")
 
 Negative evidence / skipped areas:
 <what was excluded and why> (or "none — full scope covered")
