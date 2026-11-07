@@ -445,6 +445,7 @@ recall-driven failure mode this skill has repeatedly found unreliable.
 - [ ] New type/function contract list: <n rows> (or "none")
 - [ ] Sibling parity table (new path / sibling / sibling caller guards / matched behavior / intentional divergence / unresolved divergence): <n rows> (or "no new code requiring a sibling check")
 - [ ] Accepted-vocabulary inventory (Angle K): <n entries, from which old-code lists> (or "no new or widened rejection in this diff")
+- [ ] Mutation log (Angle J): <one row per added `||`, `&&`, `if` guard, early return, and carried-state boundary: mutation command, test that fails, result> (or "none — no added conditions")
 - [ ] Exclusions declared: <what and why> (or "none — full scope covered")
 ```
 
@@ -774,6 +775,23 @@ platform makes this wrong?
   level call the walker on its child more than once? Missed on graphify#149
   (round 1): the `$if`-value fallback recomputed `recipe(kids[1])`, doubling
   the work per `$else $if` level (depth 40: 3.1 s vs 0.34 s once fixed).
+
+- **Carried state needs a reset at every boundary the loop can cross.** When a loop
+  stores a value from one token and consumes it at a later token (a pending flag set by an
+  attribute and read by the next field), list every token that can sit between them
+  (separators, section keywords such as `mut:`/`pub:`, a closing brace, another attribute
+  group) and state, for each, whether the value is consumed, kept, or cleared. A boundary
+  with no answer is a candidate. Missed on vlang/v PR 31981 (adversarial r3,
+  2026-11-07): the pending `skip` flag survived `mut:` and was never tested there.
+  Accumulation is also a boundary: `x = x || y` and `x = y` differ exactly when two sources
+  feed one slot. Test both, with two sources on the same slot.
+- **A predicate matched by token text must check the token's position, not only its
+  spelling.** A flag set when a bare word such as `skip` appears anywhere inside an
+  attribute misfires on `@[foo: skip]`, where `skip` is an argument. Before accepting a
+  match on a name, list the positions the same token can occupy (attribute name, argument,
+  string-content, enum member, field name) and check the match against the one it means.
+  Missed on vlang/v PR 31981 (adversarial r3, signatures.v:70): the leading-attribute path
+  started calling a helper that matched that word anywhere; the trailing path already did.
 
 ### Angle B — Removed-behavior audit
 For every line the diff **deletes or replaces**: name the invariant it enforced,
@@ -2326,6 +2344,11 @@ changes:
   for word: "a `-d` option" for a predicate that also accepts `prod`, `test`
   and `js` understates it. Missed on graphify#149 (round 3).
 
+- **A diagnostic names the token the user wrote.** For each error message a change adds or
+  reuses, build the smallest program that triggers it and read the text: the name it prints
+  must be the spelling in the source (`os.Result`, not `os`). Missed on PR 31981 (adversarial
+  r3, decl.v:3170): the refusal named the module for a qualified embed.
+
 **Artifact:** for every doc comment touched or introduced this diff that
 states a parameter's composition or a MUST-order rule, one line: the
 stated contract, and confirmation (or a logged gap) that every real call
@@ -2546,6 +2569,12 @@ adds or changes:
     copies, leave it open" into "one left, link it": 164 false edges between the clones in
     S:/vProjects/native-backend, while the V tree alone showed none.
 
+- **Shapes for attribute and field-declaration changes.** Run each of these on base and head
+  before writing the variation table: a keyword or flag word used as an argument inside
+  another attribute (`@[foo: skip]`); a leading attribute followed by a section keyword; two
+  attribute groups before one field; a grouped declaration after a flagged one; each embedded
+  route (plain, qualified, default-carrying, trailing semicolon, closing brace, generic).
+
 **Artifact: base-vs-head variation table.** One row per shape: `rule — shape —
 base result — head result — same, or the program that justifies the change, or
 finding`. State "N/A — reason" for a diff that changes no program's output.
@@ -2566,6 +2595,21 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   -First 3` showed only a C warning on eight tests that had in fact run, and another run
   credited every mutant to an unrelated test that was already failing, because the control
   wasn't enforced by the script: make the script stop when the control fails.
+
+- **An accumulating assignment is a compound condition.** `x = x || y` over several
+  attribute groups or several sources needs a fixture where each operand alone decides the
+  result, and a fixture where a later source would overwrite an earlier one if `||` became
+  `=`. Mutate `||` to `=` and confirm a test fails. Missed on PR 31981 (adversarial r3,
+  test-adequacy): the OR-to-assignment mutation passed the whole test file.
+- **Every spelling of an entry condition gets a row, not only the common one.** A branch
+  reached through several grammar routes (a default-carrying form, a qualified name, a
+  trailing semicolon, a closing brace on the same line, a generic) needs one fixture per
+  route. A mutation that deletes the check must fail a test for each route, or the table
+  names the untested route as a GAP. Missed on PR 31981 (adversarial r3): one spelling of the
+  embedded refusal was tested; deleting the check for the other routes passed.
+- **A mutation row cites the command that was run.** "Mutation tried" with no command, or
+  "not run", is a GAP; the table's last column records the result of the run, not an
+  expectation.
 
 **Artifact: test discrimination table.** One row per new gate, clause, branch
 or choice: `condition — mode/configuration reaching it — passing-side test —
