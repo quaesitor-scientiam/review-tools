@@ -80,6 +80,14 @@ Convert Markdown to HTML in the cells: `&` `<` `>` as entities first, then `` `x
 One commit: `vreview: rev N - <short summary>`. The gate reads the rev from that subject. Push to
 `origin main`. If the gate blocks, its message lists each missing part.
 
+A PR this repo learned from is a source, not something it fixes. Never let `fix`, `fixes`,
+`close`, `resolves` or another closing keyword come right before a PR or issue reference, even
+across a line break: GitHub closes that PR when the commit reaches `main`. A subject ending
+"per-register fixes" over a body starting "vlang/v#31407 ..." closed vlang/v#31407 twice. Write
+"From vlang/v#31407 ..." instead. The gate blocks the pair in a commit command and, at push
+time on a branch with an upstream, in every unpushed commit (including a message given with
+`-F <file>`, which the commit check cannot see).
+
 The `S:\Code Review` mirror (`/Volumes/SSData/Code Review/` on the Mac) holds copies of the three
 `reference/` files. Whoever syncs it copies them after checking the mirror still matches the
 previous commit's version.

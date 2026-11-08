@@ -157,6 +157,31 @@ fi
 [ "$(cd "$plugin_root" && pwd -P)" = "$(cd "$repo_root" && pwd -P)" ] && same_repo=1
 # repo_root is already the checkout the command commits to (see target_dir).
 doc_root="$repo_root"
+
+# No closing keyword before an issue or PR reference in a review-tools commit.
+# GitHub closes the referenced PR when such a commit reaches this repo's default
+# branch, across repositories and across a line break: the rev 98 and rev 100
+# subjects ended in "fixes" and their bodies began "vlang/v#31407 ...", and each
+# push closed vlang/v#31407 (2026-11-08, twice). Review-tools commits cite PRs
+# as sources, never as fixed, so any such pair is blocked. A push checks every
+# unpushed commit's message; a commit checks the message in the command (one
+# read with -F <file> is seen at push time).
+if [ "$same_repo" -eq 1 ] && command -v perl >/dev/null 2>&1; then
+  close_re='(?i)\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b[\s:;]*(\[|\()?([\w.-]+\/[\w.-]+)?#\d+|(?i)\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b[\s:;]*https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(pull|issues)\/\d+'
+  close_hits=""
+  if printf '%s' "$cmd_text" | grep -Eq 'git( +-[A-Za-z]+( +("[^"]*"|'"'"'[^'"'"']*'"'"'|[^ ]+))?)* +push([^A-Za-z]|$)' &&
+     git -C "$repo_root" rev-parse -q --verify '@{upstream}' >/dev/null 2>&1; then
+    close_hits="$(git -C "$repo_root" log --format='%h %B%x00' '@{upstream}..HEAD' 2>/dev/null |
+      perl -0 -ne 'my ($h) = /^\s*(\S+)/; while (/'"$close_re"'/g) { (my $m = $&) =~ s/\s+/ /g; print "commit $h: \"$m\"\n" }')"
+  fi
+  if [ -z "$close_hits" ]; then
+    close_hits="$(printf '%s' "$cmd_text" | perl -0 -ne 'while (/'"$close_re"'/g) { (my $m = $&) =~ s/\s+/ /g; print "in the command: \"$m\"\n" }')"
+  fi
+  if [ -n "$close_hits" ]; then
+    deny "Blocked by require_code_review: a closing keyword sits before an issue or PR reference, and GitHub would close that PR when this reaches review-tools main (this closed vlang/v#31407 twice). Reword so the keyword is not followed by the reference, even across a line break: end the subject without fix/fixes/close/resolve, or put 'From' or 'Source:' before the reference.
+$close_hits"
+  fi
+fi
 if [ -f "$html" ] && { [ "$plugin_is_git" -eq 0 ] || [ "$same_repo" -eq 1 ]; }; then
   stale=""
   if [ "$plugin_is_git" -eq 1 ]; then
