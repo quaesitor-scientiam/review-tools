@@ -377,6 +377,13 @@ does. Standard and Lite keep the per-angle cap and normal N/A discretion.
    position the spelling allows (leading before the name, trailing after the type, after the
    default) and state, for each flag the attribute can carry (`skip`, `required`), where the
    flag is recorded and what refuses it. A position with no row is a gap, not an omission.
+   **Two checks in one diff read the same input the same way.** When a diff holds two checks
+   over one input (a width check and a clobber check over one template), each normalisation one
+   applies is a parity row for the other: case folding, prefix stripping, quote stripping,
+   suffix handling, operand forms. A step one check has and the other lacks is a candidate, even
+   when the lacking check predates the PR. Missed on vlang/v#31407 (adversarial round 6,
+   2026-11-08): the clobber check lowercased mnemonics and stripped `lock`, the width check did
+   neither, so `MOVL %[x64], %%eax` passed silently.
 
    **Artifact: sibling parity table.** One row per new type/function/branch
    checked against a sibling, six columns:
@@ -2636,6 +2643,13 @@ adds or changes:
   - **The suggested fix, compiled, for every register or operand the message can name**,
     at `-O0` as well as `-O2`: `rbp` cannot be clobbered at `-O0`, and two clobbers beside a
     narrow `"A"` input leave it no register.
+    Compiling is not enough: the fix must also give correct code. Read the `gcc -S` output, or run
+    it and compare values. Then run the fixed program through the new check: a check that
+    accepts a fix giving wrong code is a finding too. Missed on vlang/v#31407 (adversarial round 6,
+    2026-11-08): for a narrow `"A"` input the message suggested `"a"` plus an `rdx` clobber. That
+    compiled and the check accepted it, but `mull` overwrote the input register GCC reused after
+    the block, so one call returned 2 instead of 2147483650. An input the template writes needs
+    an output (`+a`, `+A`), whatever the message says.
   Missed on vlang/v#31407 (adversarial round 4, 2026-11-07): 17 of 19 confirmed findings
   were one of these five shapes, and the stack model's tests held none of them. Round 5 (rev 98, 9 confirmed) found the
   last three: the get-PC `call`, an inert directive after `rep`, jumps that the brief said
@@ -2811,6 +2825,35 @@ For every diff that adds or widens a rejection:
   passes and two adversarial rounds, and each was patched with a new clause (slot
   widths, gaps, frames, stores, one-operand stores) while this rule sat unapplied two
   bullets up.
+- **A rerun reviews the PR, not the fix.** Every `/vreview` pass after a fix round fills the
+  Angle K table, the Angle J mutation log and the variation table for the whole PR diff, not
+  for the clauses the fix added. Keep the inventory in a file (one probe per vocabulary entry
+  and shape, one mutant per added condition, each with its expected result) and re-run all of
+  it every pass against base and head; add the fix's rows to it, never replace it with them.
+  "Unchanged from last pass" is allowed only for a row whose code the fix did not touch, and
+  names the run that produced it. A table with only the fix's rows is a GAP. Missed on
+  vlang/v#31407 (adversarial round 6, 2026-11-08, 11 confirmed): three reruns listed one to
+  three rows each, all about the newest clause ("this round only makes the check stay
+  silent"). Rules for the neutral `call` forms, spelling gates, lists built from the source,
+  and mutating every added condition all existed; none was re-run on clauses from earlier
+  rounds, so `call .+5`, `call *%rcx`, a quoted `call "l%="`, `cwtd`, and the untested
+  `pusha` and frame-adjacency clauses all passed.
+- **The PR's own premise is a vocabulary entry.** The rule the diff exists to enforce is a
+  prediction about the next stage like any other, so it gets an Angle K row that reads what
+  that stage really does, even when the issue, the maintainer or an earlier round accepted it.
+  For a clobber or constraint requirement, compile the program without the declaration and
+  read what the compiler already assumes. Missed on vlang/v#31407 (adversarial round 6): the
+  check rejected every flag-setting instruction without `cc`, but GCC's x86 backend adds a
+  flags clobber to every asm statement, so the omission could never cause wrong code. The
+  premise passed every earlier round, inline and adversarial, because the maintainer had
+  accepted it.
+- **A documented false positive is still a finding.** In a check that rejects input, a valid
+  program the old build accepted and the new one refuses is a finding even when the docs say
+  it is reported. Writing it down does not make the program invalid. Its disposition is a
+  question to the user (keep the error, make it a warning, or narrow the rule), never "out of
+  scope" or "documented". Missed on vlang/v#31407 (adversarial round 6): a register saved and
+  restored with `mov` is unchanged at block exit, but the check reports the restoring write,
+  and the docs sentence saying so was taken as the disposition.
 - **Sweep the real corpus.** Run a new rejection over every real use in the tree
   (`git grep` the construct, one checker run per file) before reviewing it by hand.
 - **The sibling may share the bug.** Sibling parity (Phase 0 step 7) reported
@@ -3054,7 +3097,7 @@ Model ledger (Angle K):
 <function — rounds with confirmed findings — clauses added/removed — allow-list question asked?> (or "no model of another tool in this diff")
 
 Acceptance-regression table (Angle K):
-<vocabulary entry — where the old code accepts it (file:line) — valid program — old build result — new build result — disposition> (or "no new or widened rejection in this diff")
+<vocabulary entry — where the old code accepts it (file:line) — valid program — old build result — new build result — disposition> (or "no new or widened rejection in this diff"). On a rerun: the whole PR's inventory, re-run this pass from its file (rev 100), named with its path and row count
 Base-vs-head variation table (Angle J):
 <rule — shape — base result — head result — same / program justifying the change / finding> (or "N/A — reason")
 ```
