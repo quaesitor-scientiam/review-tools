@@ -15,6 +15,11 @@ WSL and macOS. Git is the sync mechanism; nothing is copied by hand.
 | `hooks/` | `hooks.json` (plugin hook wiring), `require_code_review.sh` (commit gate), `check_powershell_parse.ps1`, `check_ps1_file_parse.ps1` (reference copies, wired globally) |
 | `reference/` | `code-review-reference.html` quick reference, its `code-review-misses-data.js` table data, and the `code-review-misses.md` narrative corpus |
 
+## Changing the rules
+
+See [CONTRIBUTING.md](CONTRIBUTING.md): a rev is the rule, its reference page entry and its
+corpus rows in one commit, and the commit gate checks all three.
+
 ## Install and update
 
 See [MIGRATION.md](MIGRATION.md). Short form: clone, `claude plugin marketplace add <clone>`,

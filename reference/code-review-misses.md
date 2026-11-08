@@ -3,7 +3,8 @@
 Single source for the narrative corpus of bugs external review (Codex, human) caught that
 `/vreview` missed. Moved here from Claude project memory on 2026-11-03 because memory does not
 sync between machines. Log new rows here, never in memory. The rendered table in
-`code-review-reference.html` reads `code-review-misses-data.js`; a new row goes in both.
+`code-review-reference.html` reads `code-review-misses-data.js`; a new row goes in both, in the
+four-column form of the last table. `CONTRIBUTING.md` at the repo root has the recipe.
 
 Older rows name `detect_*.sh` detectors and `S:\repo\vlang` paths as they were at the time; the
 detectors are now `detectors/detect_*.v`.

@@ -257,8 +257,11 @@ refuters to judge the claim, not its severity: sorting is the reviewer's, in the
 
 **Log the round's misses when the round closes, not when the batch does.** Each
 confirmed finding is a miss by the inline review before it: add its row to
-`reference/code-review-misses.md` (existing rule, why it failed, new enforcement), and any
-new rule with its reference page entry, as `/vreview` Phase R step 6 requires. Before
+`reference/code-review-misses.md` and `reference/code-review-misses-data.js` (four columns:
+Class | Angle | What was missed, with existing rule and why it failed | Detector / check, the
+new enforcement), and any new rule with its reference page entry (subtitle rev, changelog,
+angle card and panel), as `/vreview` Phase R step 6 and the plugin's `CONTRIBUTING.md`
+require. Before
 writing a rule, grep the skill for it: most misses come from a rule that exists and wasn't
 applied, which is a row, not a new rule.
 

@@ -2990,6 +2990,12 @@ the review.
    mechanism), so the corpus of past misses becomes a standing regression
    set to replay — and so a later reader can audit whether "present-but-
    not-run" was actually evidenced for this row or just assumed.
+   The row goes in both corpus copies (`code-review-misses.md` and
+   `code-review-misses-data.js`), four columns: Class | Angle | What was missed
+   (with "Existing rule" and "Why it failed") | Detector / check (the "New:"
+   enforcement). A new rule is a rev: page subtitle, changelog entry, angle card
+   and panel, in the same commit. Recipe: `${CLAUDE_PLUGIN_ROOT}/CONTRIBUTING.md`;
+   check with `bash "${CLAUDE_PLUGIN_ROOT}"/hooks/check_reference.sh <checkout> <rev>`.
 
 ---
 

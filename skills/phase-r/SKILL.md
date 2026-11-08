@@ -78,8 +78,9 @@ that passes proves nothing. The user has corrected this violation three times
    site doesn't own) — fix the repro, re-verify from step 4.
 
 8. **Log it** — all of, in the same session:
-   - corpus row in `${CLAUDE_PLUGIN_ROOT}/reference/code-review-misses.md` (class, reviewed commit,
-     detector/check, failure narrative) and in `reference/code-review-misses-data.js`.
+   - corpus row in `${CLAUDE_PLUGIN_ROOT}/reference/code-review-misses.md` (four columns: Class |
+     Angle | What was missed | Detector / check) and the same row in
+     `reference/code-review-misses-data.js`, per `${CLAUDE_PLUGIN_ROOT}/CONTRIBUTING.md`.
      Not in Claude memory: memory does not sync between machines;
    - Angle bullet in `${CLAUDE_PLUGIN_ROOT}/skills/vreview/SKILL.md` if the class is new;
    - mechanical detector in `${CLAUDE_PLUGIN_ROOT}/skills/code-review/` if mechanizable
@@ -87,8 +88,9 @@ that passes proves nothing. The user has corrected this violation three times
      `run_detectors.sh`'s manifest — or the non-detector remediation from
      step 3 (matrix row, artifact/table column, checklist rule, documented
      limitation) when a detector doesn't fit;
-   - sync `${CLAUDE_PLUGIN_ROOT}/reference/code-review-reference.html`
-     ([[feedback_update_code_review_html]]).
+   - sync `${CLAUDE_PLUGIN_ROOT}/reference/code-review-reference.html` for a new rule: subtitle
+     rev, changelog entry, angle card and panel (CONTRIBUTING.md section 3); check with
+     `bash "${CLAUDE_PLUGIN_ROOT}"/hooks/check_reference.sh <checkout> <rev>`.
 
 Phase R alone does NOT satisfy the commit gate — run the full `/vreview`
 before committing (the PreToolUse hook enforces both the review fingerprint and

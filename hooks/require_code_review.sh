@@ -50,7 +50,7 @@ marker="$git_dir/.last_code_review"
 
 deny() {
   # $1: reason. Escape double quotes so the JSON stays valid.
-  local reason; reason="$(printf '%s' "$1" | sed 's/"/\\"/g')"
+  local reason; reason="$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'NR > 1 {printf "\\n"} {printf "%s", $0}')"
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$reason"
   exit 0
 }
@@ -103,11 +103,33 @@ if [ "$plugin_is_git" -eq 1 ]; then
   [ -n "$plugin_common" ] && [ "$plugin_common" = "$repo_common" ] && same_repo=1
 fi
 [ "$(cd "$plugin_root" && pwd -P)" = "$(cd "$repo_root" && pwd -P)" ] && same_repo=1
+# The hook runs in the session's directory, not where the command cds to, so a
+# session working in a vlang checkout that runs `cd ~/repo/review-tools && git
+# commit` (or `git -C <dir> commit`, `pushd <dir>`) commits to the plugin while
+# repo_root still names the vlang checkout, and the doc checks below were
+# skipped. Revs 93, 94, 97 and 98 went in that way with no page entry. Find
+# such a directory in the command and gate the commit there.
+doc_root="$repo_root"
+if [ "$plugin_is_git" -eq 1 ] && [ "$same_repo" -eq 0 ]; then
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    case "$d" in "~"*) d="$HOME${d#\~}" ;; '$HOME'*) d="$HOME${d#\$HOME}" ;; esac
+    case "$d" in *\\*) d="$(cygpath -u "$d" 2>/dev/null || printf '%s' "$d" | tr '\\' '/')" ;; esac
+    [ -d "$d" ] || continue
+    d_common="$(git -C "$d" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+    if [ -n "$d_common" ] && [ "$d_common" = "$plugin_common" ]; then
+      doc_root="$(git -C "$d" rev-parse --show-toplevel 2>/dev/null)"
+      same_repo=1
+      break
+    fi
+  done <<<"$(printf '%s' "$payload" |
+    grep -oE '(cd|pushd|Set-Location|-C) +(\\"[^"\\]+\\"|'"'"'[^'"'"']+'"'"'|[^ ;&|"'"'"'()]+)' |
+    sed -E 's/^(cd|pushd|Set-Location|-C) +//; s/^\\"//; s/\\"$//; s/^'"'"'//; s/'"'"'$//; s/\\\\/\\/g')"
+fi
 if [ -f "$html" ] && { [ "$plugin_is_git" -eq 0 ] || [ "$same_repo" -eq 1 ]; }; then
   stale=""
   if [ "$plugin_is_git" -eq 1 ]; then
     html_rel="reference/code-review-reference.html"
-    doc_root="$repo_root"
     dirty_src="$( { git -C "$doc_root" status --porcelain --untracked-files=no -- skills detectors
                     git -C "$doc_root" status --porcelain --untracked-files=all -- skills ':(glob)detectors/*.v'
                   } 2>/dev/null | head -1)"
@@ -134,8 +156,22 @@ if [ -f "$html" ] && { [ "$plugin_is_git" -eq 0 ] || [ "$same_repo" -eq 1 ]; }; 
     # In a git plugin the corpus is under reference/, and checkout mtimes mean nothing.
     [ -z "$stale" ] && [ -f "$misses" ] && [ "$misses" -nt "$html" ] && stale="$misses is newer than the HTML"
   fi
-  if [ -n "$stale" ]; then
-    deny "Blocked by require_code_review: review docs changed ($stale) but the HTML reference was not synced. Update $html (angle cards, detectors tab, miss corpus, counts, subtitle date) per feedback_update_code_review_html, commit it in the review-tools repo, then retry."
+  # What the page and corpus must hold, checked by content: the page's rev,
+  # changelog and cards for the newest rev, four-cell corpus rows, and the same
+  # rows in both corpus copies. Touching the HTML is not enough on its own.
+  # Reported with the staleness reason, so one denial lists everything to fix.
+  ref_problems=""
+  if [ "$plugin_is_git" -eq 1 ] && [ -f "$plugin_root/hooks/check_reference.sh" ]; then
+    commit_rev="$(printf '%s' "$payload" | grep -oE 'vreview: rev [0-9]+' | head -1 | awk '{print $NF}')"
+    ref_problems="$(bash "$plugin_root/hooks/check_reference.sh" "$doc_root" "$commit_rev" 2>&1)" && ref_problems=""
+  fi
+  if [ -n "$stale" ] || [ -n "$ref_problems" ]; then
+    msg="Blocked by require_code_review: the reference page or corpus is not in step with this change. Follow CONTRIBUTING.md in the review-tools repo (page subtitle rev, changelog entry, angle cards and angleData panels, corpus rows in both copies), commit the page with the skill change, then retry. Check by hand with: bash hooks/check_reference.sh . <rev>"
+    [ -n "$stale" ] && msg="$msg
+- review docs changed ($stale) but the page was not updated"
+    [ -n "$ref_problems" ] && msg="$msg
+$ref_problems"
+    deny "$msg"
   fi
 fi
 
