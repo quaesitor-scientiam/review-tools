@@ -792,6 +792,14 @@ platform makes this wrong?
   string-content, enum member, field name) and check the match against the one it means.
   Missed on vlang/v PR 31981 (adversarial r3, signatures.v:70): the leading-attribute path
   started calling a helper that matched that word anywhere; the trailing path already did.
+- **A check on a type name must run on the form the producer writes, not only the resolved
+  one.** A new branch that asks "is this a callable" (or boxed, pointer, enum) on the
+  resolved layout (`underlying_alias_type(typ)`) misses a named alias whose layout no longer
+  carries the name the check reads. For every new name-based predicate, write the named
+  alias of the type next to the unnamed form, and run both. Missed on the fastc `$zero`
+  callable branch (`comptime.v:1540`, rev 96): `type Cb = fn (int) int` followed by
+  `$zero(Cb)` failed, though the unnamed `$zero(fn (int) int)` worked; `/vreview` read the
+  branch and the unnamed test only.
 
 ### Angle B — Removed-behavior audit
 For every line the diff **deletes or replaces**: name the invariant it enforced,
@@ -2635,6 +2643,20 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
 - **A mutation row cites the command that was run.** "Mutation tried" with no command, or
   "not run", is a GAP; the table's last column records the result of the run, not an
   expectation.
+- **A block-valued operand keeps its grouping in every operand position.** When an
+  emitter wraps a block or statement-expression value (`unsafe { … }`, `lock x { … }`,
+  `({ … })`) and adds parens only before some following tokens (`.`, `[`), every other
+  position is a candidate: as the LEFT operand of a binary operator (`unsafe { a + b } * c`
+  emitted as `a + b * c`), as a RIGHT operand (the inner operator binds to the left
+  operand), and nested inside another block. Run each operator in both positions, nested
+  and not, against base; a wrong value is a finding even when base shares it, because the
+  change's own grouping is what should have covered it. Missed on the fastc transparent
+  unsafe regroup (`expr.v:2615`, `$zero`/`$new` branch, rev 96): four confirmed findings
+  from `/adversarial-review` (left operand, nested, right operand, plus the alias
+  `$zero`) that `/vreview` passed, because the angle that reviews a regroup read the
+  `.`/`[` branch only. Mechanical gate: run `vlib/v/gen/fastc` probes `unsafe { a + b } * c`,
+  `2 * unsafe { a + b }`, `unsafe { unsafe { a } + b } * c` with `-b fastc` and compare with
+  the expected value.
 
 **Artifact: test discrimination table.** One row per new gate, clause, branch
 or choice: `condition — mode/configuration reaching it — passing-side test —
