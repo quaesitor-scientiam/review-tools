@@ -8,8 +8,9 @@
 # Shipped as part of the review-tools plugin and wired by hooks/hooks.json on
 # the Bash AND PowerShell tools (commits here often go through pwsh, e.g.
 # `$m | git commit -F -`, which is exactly why a Bash-only reminder never
-# fired). Reads the tool payload on stdin; greps the raw JSON for a git commit/
-# push invocation (no jq dependency — git-bash has no jq).
+# fired). Reads the tool payload on stdin, undoes its JSON string escapes, and
+# greps that for a git commit/push invocation (no jq dependency — git-bash has
+# no jq). Runs under Git Bash on Windows, as Claude Code runs hooks there.
 #
 # Every path this hook checks is resolved from its own location inside the
 # plugin, never from the target repo's .claude/ directory, so it behaves the
@@ -18,11 +19,23 @@
 set -uo pipefail
 
 payload="$(cat)"
+# The payload with JSON string escapes undone (\\ -> \, \" -> ", a line break
+# \n or \r -> ` ; `, a tab \t -> a space), so the patterns below see the command
+# as typed. Matching the raw JSON missed every quoted Windows path: `cd "S:\x"`
+# arrives as `cd \"S:\\x\"`; and a multi-line command arrives as
+# `cd S:\\x\ngit commit`, whose bare path then read as `S:\x\ngit`. A
+# placeholder byte keeps `\\"` and `\\n` (a path ending in a backslash, or
+# holding `\n`, as in S:\new) intact. Portable sed only: no \xNN escapes, which
+# BSD sed on macOS does not read.
+esc_ph="$(printf '\001')"
+cmd_text="$(printf '%s' "$payload" | sed -e "s/\\\\\\\\/$esc_ph/g" -e 's/\\[nr]/ ; /g' -e 's/\\t/ /g' \
+  -e 's/\\"/"/g' -e "s/$esc_ph/\\\\/g")"
 
 # Only gate git commit / git push. Match the literal subcommand anywhere in the
 # command string (covers `git commit`, `git push`, `$m | git commit -F -`,
-# `git -C path commit`, etc.). Over-matching is safe — it only adds a review gate.
-if ! printf '%s' "$payload" | grep -Eq 'git( +-[A-Za-z]+( +[^ ]+)?)* +(commit|push)([^A-Za-z]|$)'; then
+# `git -C path commit`, `git -C "C:\with space" commit`, etc.). Over-matching is
+# safe — it only adds a review gate.
+if ! printf '%s' "$cmd_text" | grep -Eq 'git( +-[A-Za-z]+( +("[^"]*"|'"'"'[^'"'"']*'"'"'|[^ ]+))?)* +(commit|push)([^A-Za-z]|$)'; then
   exit 0
 fi
 
@@ -37,14 +50,53 @@ esac
 plugin_root="$(cd "$(dirname "$self")/.." 2>/dev/null && pwd)"
 [ -n "$plugin_root" ] || exit 0
 
-repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+# The repository the commit lands in. The hook runs in the session's directory,
+# not where the command changes to, so a session in S:\repo\vlang that runs
+# `cd ..\wt-x; git commit` (or `git -C <dir> commit`, `pushd <dir>`) commits to
+# that other checkout while every gate below read the session's checkout:
+# the review marker, the vfmt check and the plugin's page check all passed on
+# the wrong diff. Revs 93, 94, 97 and 98 went into review-tools that way with no
+# page entry, and an unreviewed review-tools diff committed from a vlang session
+# passed the marker gate. So take the LAST directory the command names that is
+# inside a git work tree, and gate there; with none, the session's directory.
+# Directory forms read, in bash and PowerShell (case-insensitive): cd, chdir,
+# pushd, sl, Set-Location, Push-Location (with an optional -Path/-LiteralPath),
+# and -C (git -C); each with a bare, "double-quoted" or 'single-quoted' path, in
+# MSYS (/s/x), Windows (S:\x, S:/x), relative, or ~/$HOME/$env:USERPROFILE form.
+# Known approximations: a path held in a variable (`cd $p`) or set inside a
+# script file is not seen; a relative path is resolved against the session's
+# directory, not against an earlier cd in the same command; one command that
+# commits in two checkouts (`git -C a commit; git -C b push`) is gated in the
+# last only; and any later match naming another checkout wins, such as another
+# tool's -C (`make -C dir`) or `cd <dir>` written inside a commit message.
+target_dir=""
+while IFS= read -r d; do
+  [ -n "$d" ] || continue
+  case "$d" in
+    "~"*) d="$HOME${d#\~}" ;;
+    '$HOME'*) d="$HOME${d#\$HOME}" ;;
+    '$env:USERPROFILE'*) d="$HOME${d#\$env:USERPROFILE}" ;;
+    '$env:HOME'*) d="$HOME${d#\$env:HOME}" ;;
+  esac
+  case "$d" in *\\*|[A-Za-z]:*) d="$(cygpath -u "$d" 2>/dev/null || printf '%s' "$d" | tr '\\' '/')" ;; esac
+  [ -d "$d" ] || continue
+  git -C "$d" rev-parse --is-inside-work-tree >/dev/null 2>&1 && target_dir="$d"
+# The command names match in any case, as PowerShell reads them, but -C only
+# exactly: `-c` is `git -c key=val`, `bash -c '...'` and `pwsh -c "..."`, and
+# reading the quoted script after `-c` as a path swallowed the `cd` inside it.
+done <<<"$(printf '%s' "$cmd_text" |
+  grep -oE '(^|[^A-Za-z0-9_-])([Cc][Dd]|[Cc][Hh][Dd][Ii][Rr]|[Pp][Uu][Ss][Hh][Dd]|[Ss][Ll]|[Ss][Ee][Tt]-[Ll][Oo][Cc][Aa][Tt][Ii][Oo][Nn]|[Pp][Uu][Ss][Hh]-[Ll][Oo][Cc][Aa][Tt][Ii][Oo][Nn]|-C)( +-([Ll][Ii][Tt][Ee][Rr][Aa][Ll])?[Pp][Aa][Tt][Hh])? +("[^"]+"|'"'"'[^'"'"']+'"'"'|[^ ;&|"'"'"'()]+)' |
+  sed -E 's/^[^A-Za-z-]*//; s/^[^ ]+ +//; s/^-([Ll][Ii][Tt][Ee][Rr][Aa][Ll])?[Pp][Aa][Tt][Hh] +//; s/^"(.*)"$/\1/; s/^'"'"'(.*)'"'"'$/\1/')"
+[ -n "$target_dir" ] || target_dir="."
+
+repo_root="$(git -C "$target_dir" rev-parse --show-toplevel 2>/dev/null)" || exit 0
 [ -n "$repo_root" ] || exit 0
 # --absolute-git-dir (not "$repo_root/.git") so this resolves correctly in a
 # git worktree, where .git is a FILE (a gitdir pointer) rather than a
 # directory — "$repo_root/.git/.last_code_review" is unwritable there, which
 # silently made every worktree session's marker write fail and every commit
 # get falsely blocked (caught 2026-07-04 in a worktree session on #27643).
-git_dir="$(git rev-parse --absolute-git-dir 2>/dev/null)" || exit 0
+git_dir="$(git -C "$target_dir" rev-parse --absolute-git-dir 2>/dev/null)" || exit 0
 [ -n "$git_dir" ] || exit 0
 marker="$git_dir/.last_code_review"
 
@@ -103,29 +155,8 @@ if [ "$plugin_is_git" -eq 1 ]; then
   [ -n "$plugin_common" ] && [ "$plugin_common" = "$repo_common" ] && same_repo=1
 fi
 [ "$(cd "$plugin_root" && pwd -P)" = "$(cd "$repo_root" && pwd -P)" ] && same_repo=1
-# The hook runs in the session's directory, not where the command cds to, so a
-# session working in a vlang checkout that runs `cd ~/repo/review-tools && git
-# commit` (or `git -C <dir> commit`, `pushd <dir>`) commits to the plugin while
-# repo_root still names the vlang checkout, and the doc checks below were
-# skipped. Revs 93, 94, 97 and 98 went in that way with no page entry. Find
-# such a directory in the command and gate the commit there.
+# repo_root is already the checkout the command commits to (see target_dir).
 doc_root="$repo_root"
-if [ "$plugin_is_git" -eq 1 ] && [ "$same_repo" -eq 0 ]; then
-  while IFS= read -r d; do
-    [ -n "$d" ] || continue
-    case "$d" in "~"*) d="$HOME${d#\~}" ;; '$HOME'*) d="$HOME${d#\$HOME}" ;; esac
-    case "$d" in *\\*) d="$(cygpath -u "$d" 2>/dev/null || printf '%s' "$d" | tr '\\' '/')" ;; esac
-    [ -d "$d" ] || continue
-    d_common="$(git -C "$d" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
-    if [ -n "$d_common" ] && [ "$d_common" = "$plugin_common" ]; then
-      doc_root="$(git -C "$d" rev-parse --show-toplevel 2>/dev/null)"
-      same_repo=1
-      break
-    fi
-  done <<<"$(printf '%s' "$payload" |
-    grep -oE '(cd|pushd|Set-Location|-C) +(\\"[^"\\]+\\"|'"'"'[^'"'"']+'"'"'|[^ ;&|"'"'"'()]+)' |
-    sed -E 's/^(cd|pushd|Set-Location|-C) +//; s/^\\"//; s/\\"$//; s/^'"'"'//; s/'"'"'$//; s/\\\\/\\/g')"
-fi
 if [ -f "$html" ] && { [ "$plugin_is_git" -eq 0 ] || [ "$same_repo" -eq 1 ]; }; then
   stale=""
   if [ "$plugin_is_git" -eq 1 ]; then
@@ -224,4 +255,4 @@ if [ "$current_fp" = "$saved_fp" ]; then
 fi
 
 # Deny: the pending diff was not reviewed (or changed since the review).
-deny 'Blocked by require_code_review: the current uncommitted diff has not passed the project review (no review marker, or the diff changed since the last review). Run /vreview on this diff first — it records <git-dir>/.last_code_review — then retry. Phase R alone does NOT satisfy this; run the full review.'
+deny "Blocked by require_code_review: the current uncommitted diff in $repo_root has not passed the project review (no review marker, or the diff changed since the last review). Run /vreview on this diff first — it records <git-dir>/.last_code_review — then retry. Phase R alone does NOT satisfy this; run the full review."
