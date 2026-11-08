@@ -2627,9 +2627,19 @@ adds or changes:
   - **Each operand position of each form the model handles**: memory first and memory
     last (`xchg mem, reg` and `xchg reg, mem`), through each base register it tracks.
   - **A directive or prefix alone between the two halves** of anything carried across
-    statements (`rep` then `.p2align` then `movsb`).
+    statements (`rep` then `.p2align` then `movsb`), once with a member of each class the
+    code treats alike: a directive that emits padding and one that emits nothing (`.globl`).
+  - **Each form of each instruction the model treats as neutral or as ending its state.**
+    A `call` to a function returns; `call 1f; 1: pop %%rbx` leaves its return address on the
+    stack. A jump the model does not follow still reorders what runs. Run every form, and
+    check the gate the docs say skips a form really does (read it, do not trust the brief).
+  - **The suggested fix, compiled, for every register or operand the message can name**,
+    at `-O0` as well as `-O2`: `rbp` cannot be clobbered at `-O0`, and two clobbers beside a
+    narrow `"A"` input leave it no register.
   Missed on vlang/v#31407 (adversarial round 4, 2026-11-07): 17 of 19 confirmed findings
-  were one of these five shapes, and the stack model's tests held none of them.
+  were one of these five shapes, and the stack model's tests held none of them. Round 5 (rev 98, 9 confirmed) found the
+  last three: the get-PC `call`, an inert directive after `rep`, jumps that the brief said
+  were skipped, an `rbp` clobber hint, and a two-clobber hint beside an `"A"` input.
 
 **Artifact: base-vs-head variation table.** One row per shape: `rule — shape —
 base result — head result — same, or the program that justifies the change, or
