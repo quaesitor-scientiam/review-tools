@@ -444,6 +444,7 @@ recall-driven failure mode this skill has repeatedly found unreliable.
 - [ ] Repeat-offender list: <n rows> (or "none")
 - [ ] New type/function contract list: <n rows> (or "none")
 - [ ] Sibling parity table (new path / sibling / sibling caller guards / matched behavior / intentional divergence / unresolved divergence): <n rows> (or "no new code requiring a sibling check")
+- [ ] Model ledger (Angle K): <one row per function that models another tool: rounds with confirmed findings, added/removed clauses; two in a row means ask the allow-list question before fixing> (or "no model of another tool in this diff")
 - [ ] Accepted-vocabulary inventory (Angle K): <n entries, from which old-code lists> (or "no new or widened rejection in this diff")
 - [ ] Mutation log (Angle J): <one row per added `||`, `&&`, `if` guard, early return, and carried-state boundary: mutation command, test that fails, result> (or "none — no added conditions")
 - [ ] Exclusions declared: <what and why> (or "none — full scope covered")
@@ -2608,6 +2609,28 @@ adds or changes:
   attribute groups before one field; a grouped declaration after a flagged one; each embedded
   route (plain, qualified, default-carrying, trailing semicolon, closing brace, generic).
 
+- **Shapes for code that models another tool's input (an assembler, a register
+  allocator, a shell).** Run each on base and head and, where they disagree, on the
+  tool itself (`as` and `objdump`, `gcc -S` with a `# %0 %1` template comment):
+  - **Every literal spelling the tool accepts**: decimal, `0x`, leading-zero octal
+    (`010` is 8 in GNU as), `0b`, a sign and a doubled sign (`-8`, `+-8`, `--8`),
+    a negative immediate (`$-8`), a character literal, an expression (`8+8`), a symbol.
+    A parser that reads fewer spellings than the tool reads the rest wrong, not
+    nothing.
+  - **The size the instruction really moves**, for every place the model takes a size
+    from an operand: a count operand (`shlq %cl, mem`), a scalar view of a vector
+    register (`movsd`/`movq %xmm0, mem` move 8 bytes), an operand reference, and the
+    fallback for an unknown form placed in a scratch slot next to a tracked one.
+  - **Each tracked construct nested in itself and in each other one**: a frame in a
+    frame, a save of the frame register inside the frame, a save inside a gap.
+    One state slot for a construct that can nest is a finding.
+  - **Each operand position of each form the model handles**: memory first and memory
+    last (`xchg mem, reg` and `xchg reg, mem`), through each base register it tracks.
+  - **A directive or prefix alone between the two halves** of anything carried across
+    statements (`rep` then `.p2align` then `movsb`).
+  Missed on vlang/v#31407 (adversarial round 4, 2026-11-07): 17 of 19 confirmed findings
+  were one of these five shapes, and the stack model's tests held none of them.
+
 **Artifact: base-vs-head variation table.** One row per shape: `rule — shape —
 base result — head result — same, or the program that justifies the change, or
 finding`. State "N/A — reason" for a diff that changes no program's output.
@@ -2705,7 +2728,8 @@ For every diff that adds or widens a rejection:
 - **Enumerate the accepted vocabulary first, from the code, not from memory.**
   Find every list the OLD code uses to accept or classify this input: keyword
   tables, synonym lists (`asm_clobber_is_special`), directive sets, constraint
-  letters, every expression kind an operand may be, every binding an
+  letters and their modifiers (`=`, `+`, `&`, `%`), each modifier beside each
+  other operand kind it can share a register with, every expression kind an operand may be, every binding an
   identifier may resolve to (local, parameter, const, global, enum value).
   Write the list down as an artifact BEFORE judging the new check. For each
   entry state whether the new check handles it, ignores it correctly, or
@@ -2766,6 +2790,17 @@ For every diff that adds or widens a rejection:
   program behind it. Replacing the model with "only where the caller can see no function of
   the name" removed the clauses, changed none of the 14 real edges it existed for, and
   brought differences from base on the fixtures from 102 to 40. Disclose what it gives up.
+  **Keep a model ledger, because nobody counts rounds by memory.** For every function
+  that models another tool (a stack or register tracker, a constraint allocator, an
+  assembler or parser state machine), keep one row per review round that touched it,
+  inline `/vreview` passes included: the round, how many confirmed findings landed in
+  the function, and whether the fix added a clause or removed one. Two consecutive
+  rows with findings stop the fix: the next step is the allow-list question, asked
+  before any patch. Missed on vlang/v#31407 (adversarial round 4, 2026-11-07, 19
+  confirmed): the push/pop save model added for round 1 took findings in four inline
+  passes and two adversarial rounds, and each was patched with a new clause (slot
+  widths, gaps, frames, stores, one-operand stores) while this rule sat unapplied two
+  bullets up.
 - **Sweep the real corpus.** Run a new rejection over every real use in the tree
   (`git grep` the construct, one checker run per file) before reviewing it by hand.
 - **The sibling may share the bug.** Sibling parity (Phase 0 step 7) reported
@@ -2998,6 +3033,9 @@ Absence-search checklist:
 
 Test discrimination table (Angle J):
 <condition — mode/configuration reaching it — passing-side test — rejecting-side test or GAP (observables considered) — plausible-wrong mutation — result — fixture lines that failed> (or "no new conditions")
+
+Model ledger (Angle K):
+<function — rounds with confirmed findings — clauses added/removed — allow-list question asked?> (or "no model of another tool in this diff")
 
 Acceptance-regression table (Angle K):
 <vocabulary entry — where the old code accepts it (file:line) — valid program — old build result — new build result — disposition> (or "no new or widened rejection in this diff")
