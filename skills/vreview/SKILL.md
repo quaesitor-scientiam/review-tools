@@ -453,9 +453,9 @@ recall-driven failure mode this skill has repeatedly found unreliable.
 - [ ] Sibling parity table (new path / sibling / sibling caller guards / matched behavior / intentional divergence / unresolved divergence): <n rows> (or "no new code requiring a sibling check")
 - [ ] Model ledger (Angle K): <one row per function that models another tool: rounds with confirmed findings, added/removed clauses; two in a row means ask the allow-list question before fixing> (or "no model of another tool in this diff")
 - [ ] Accepted-vocabulary inventory (Angle K): <n entries, from which old-code lists> (or "no new or widened rejection in this diff")
-- [ ] Reference-grammar trace (Angle K, rev 101): <reference function and its full line range, one row per consuming branch with adjacency and nesting probe results> (or "no model of another tool's grammar in this diff")
+- [ ] Reference-grammar trace (Angle K, rev 101): <reference function and its full line range, one row per consuming branch with adjacency and nesting probe results, plus the caller's line range and a leftover row per token class (rev 104)> (or "no model of another tool's grammar in this diff")
 - [ ] Comment ledger (Angle I, rev 101): <one row per line `detect_external_behavior_claims` lists, and per comment line a rerun's fix adds> (or "no new comment states what another tool does")
-- [ ] Mutation log (Angle J): <one row per added `||`, `&&`, `if` guard, early return, and carried-state boundary: mutation command, test that fails, result> (or "none — no added conditions")
+- [ ] Mutation log (Angle J): <one row per added `||`, `&&`, `if` guard, early return, carried-state boundary (unchanged lines included), input advance, and member of an added `in [...]` list, from the generated inventory (rev 104): mutation command, test that fails, result> (or "none — no added conditions")
 - [ ] Exclusions declared: <what and why> (or "none — full scope covered")
 ```
 
@@ -2466,6 +2466,14 @@ changes:
   kept when "a directory is in the way" of the lock, true of `claim()` alone but not of a full
   wipe, which sorts the directory first and removes it; it named `HOME`, which Windows ignores;
   it said relative paths are ignored, and `\cache\roots` was accepted.
+- **A subsystem is one consumer per operation (rev 104).** When a comment says what a
+  subsystem of another tool does with the input ("V's ORM skips it", "json ignores it"), each
+  operation that reads the input is a consumer of its own: `create table`, `insert`, `select`
+  and `update` for an ORM, encode and decode for a codec. Run the program through each one;
+  when they disagree, the comment names the ones it is true of. Missed on vlang/v PR 31981
+  (adversarial round 8, 2026-11-09): "V's ORM skips `@[skip: x]`" was checked through
+  `create table` only. V's `insert` still writes that column and panics, while fastc drops it
+  everywhere.
 
 - **A diagnostic names the token the user wrote.** For each error message a change adds or
   reuses, build the smallest program that triggers it and read the text: the name it prints
@@ -2841,6 +2849,34 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   still wrote `keeping <lock>` for each lock file before the folder was removed, and the dry
   run said `except <folder>` for a folder the real run deletes; the test checked only that a
   `removing <folder>` line was present.
+- **Every input advance is a mutant (rev 104).** In code that scans or parses, delete each
+  statement the diff adds that moves the input on (`tok = scan.scan()`, `p.next()`, a
+  `lookahead.scan()` whose result is kept), one mutant each. A dropped advance is the commonest
+  scanner defect, and an inventory built from conditions never lists it, because it is not a
+  condition. Missed on vlang/v PR 31981 (adversarial round 8, 2026-11-09): deleting the scan
+  after a call's `)` passed every test; `@[foo(x): skip]` fails under that mutant.
+- **Build the mutation inventory from the diff, not from the function under review (rev
+  104).** Generate the candidate list, then give every hit a row:
+
+  ```sh
+  git diff $(git merge-base <base> HEAD) -U0 -- '*.v' ':!*_test.v' \
+    | grep -E '^\+' | grep -vE '^\+\+\+|^\+[[:space:]]*//' \
+    | grep -E '\bif\b|\bfor\b|\bmatch\b|\belse\b|\breturn\b|\bcontinue\b|\bbreak\b|or \{|in \[|&&|\|\||\.scan\(\)|\.next\(\)'
+  ```
+
+  Diffing against the merge base, not `...HEAD`, folds in uncommitted work; comment lines are
+  dropped. Early returns, `continue`, `break`, `else` and `or {` are in the pattern because the
+  mutation log already requires rows for them.
+
+  Each member of an `in [...]` list is its own row: a whole-list mutant (`if false`) killed by
+  one member's test does not stand for the others. Add one clear-at-the-boundary mutant per
+  boundary row of Angle A's carried-state list, including boundaries in lines the diff did not
+  change, since the grep cannot see them. On every rerun compare the generated list with the
+  inventory file; a hit with no row is a GAP. Missed on vlang/v PR 31981 (adversarial round 8):
+  the inventory mutated `[.comma, .semicolon]` member by member but the refusal list
+  `[.rsbr, .colon, .lsbr, .rcbr, .eof]` only as `if false`, so only `.rsbr` was tested; and it
+  covered the scanner in `signatures.v` but had no mutant clearing the pending flag at
+  `decl.v`'s unchanged `pub mut:` branch, whose one test runs only on macOS and Linux.
 
 **Artifact: test discrimination table.** One row per new gate, clause, branch
 or choice: `condition — mode/configuration reaching it — passing-side test —
@@ -2951,8 +2987,34 @@ For every diff that adds or widens a rejection:
 
   **Artifact: reference-grammar trace.** The reference function and its full line range, one
   row per consuming branch (`branch — reference file:line — what ends the item — model
-  file:line — adjacency probe result — nesting probe result`), or "no model of another tool's
-  grammar in this diff".
+  file:line — adjacency probe result — nesting probe result`), then the caller's line range and
+  one leftover row per token class (rev 104), or "no model of another tool's grammar in this
+  diff".
+- **What the reference leaves is read by its caller (rev 104).** When the reference function
+  can stop before the construct ends (V's attribute group ends at its first `]`, a call's
+  arguments at their first `)`), the tokens it leaves go back to its caller, and the caller's
+  recovery is part of the grammar: a catch-all `else { p.next() }`, a skip-to-sync loop, a test
+  for a following `=`. Extend the trace into the caller, name its line range, and give the
+  leftover path its own row. Probe the leftover with one token of each class (`]`, `,`, `;`, a
+  number, a string, `=`, `(`, `{`) and, after it, with each thing that can follow (another
+  attribute group, `= default`, the next field), in every position the model calls the scanner
+  from (leading, trailing, after a default). A model that copies one leftover token (a stray
+  `]`) has ported part of the caller, and the other classes are the regression. Phase 0 step
+  7's call-path rule applies to a reference grammar as it does to a sibling. Missed on vlang/v
+  PR 31981 (adversarial round 8, 2026-11-09, 8 confirmed): round 7's fix skipped the `]` that
+  a nested `@[a[b]]` leaves, but V's `struct_decl` drops any token it doesn't expect
+  (parser.v:3105), so `@[a[1], 2]`, `@[default: x[0] + 1]` and `@[x[0] == 1]`, which base built,
+  were refused. The same leftover makes V give a following group to the next field and ignore
+  `= 1`, which fastc has never modelled.
+- **A slot that takes one token takes any token (rev 104).** When a reference branch consumes
+  exactly one token of any kind (V's `name: arg`), probe the slot with each opener the model
+  counts anywhere (`{`, `(`, `[`) and each token on the model's refusal list, and run each
+  probe through the whole build down to the C compiler. List every other pass in the model over
+  the same input (a brace counter that finds the end of a struct body, a pre-scan for fields)
+  and give each a row: the scanner function can agree with the reference while another pass
+  miscounts. Missed on vlang/v PR 31981 (adversarial round 8): V accepts `@[foo: { skip]`;
+  fastc's attribute scanner did too, but another brace-counting pass ended the struct in the
+  wrong place and the build failed in C, on base and head.
 - **Read what the next stage actually emits; never infer it from the type.** A
   rule that predicts another tool's behaviour (what register GCC picks, what an
   assembler does with a directive) is a claim about that tool's real input and
@@ -3260,7 +3322,7 @@ Model ledger (Angle K):
 <function — rounds with confirmed findings — clauses added/removed — allow-list question asked?> (or "no model of another tool in this diff")
 
 Reference-grammar trace (Angle K, rev 101):
-<reference function and full line range; branch — reference file:line — what ends the item — model file:line — adjacency probe result — nesting probe result> (or "no model of another tool's grammar in this diff")
+<reference function and full line range; branch — reference file:line — what ends the item — model file:line — adjacency probe result — nesting probe result; then the caller's line range and one leftover row per token class, rev 104> (or "no model of another tool's grammar in this diff")
 
 Comment ledger (Angle I, rev 101):
 <file:line — claim — program and consumers run — result> (or "no new comment states what another tool does")
