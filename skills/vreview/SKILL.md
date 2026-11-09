@@ -762,6 +762,23 @@ platform makes this wrong?
   parameters typed `T`, `[]T` or `fn () T`, so `g_map({'a': Foo{}})` with a
   `map[K]V` parameter called `Foo.str` and was claimed as V's. The inline review
   had noted the case as a limit, imagining only callers outside the tree.
+- **A marker that a set is complete must be withheld when a member is (rev 102).** When
+  code writes a claim about a whole set it processed (a `scanned` line, a `done` flag, a cache
+  entry that stands for its members), list every filter that can leave a member out of the
+  record (a character that cannot be stored, a write error, a size cap) and confirm that each
+  one also withholds the marker. A comment saying the skipped case "is handled every time" is a
+  claim about the marker: check it against the marker's code. Missed on vlang/v#31848
+  (adversarial round 1, 2026-11-08): `record_tool_cache_scan` dropped a root whose path held a
+  line break but still wrote `scanned <folder>`, so the next wipe looked the folder up, missed
+  the root, and deleted a live build with its lock file.
+- **Two spellings of one file (rev 102).** Code that compares paths as strings (a prefix test,
+  a map key, `in` over recorded paths) assumes one spelling per file. List what the normalizer
+  does on every filesystem the code runs on: `os.real_path` keeps the case it was given on a
+  case-insensitive POSIX mount (WSL `/mnt/c`, CIFS, ext4 casefold), so a recorded path and a
+  later argument can differ. Where spellings can differ, compare by identity (`os.stat` device
+  and inode), or take the safe path when the strings disagree. Missed on vlang/v#31848
+  (adversarial round 1): a root recorded as `/mnt/s/Foo/...` was missed by a lookup of
+  `/mnt/s/foo/...`, and the wipe deleted it with its live build.
 - **A new rule must not overwrite something more precise.** For each new line
   that replaces a value, type or state, ask what it holds before that line, for
   every input and not just the motivating one. If it can already be more exact
@@ -822,6 +839,13 @@ then find where the new code re-establishes it. If you can't, that's a candidate
   handled and confirm the new one handles each. No line is deleted, so read the
   branch it left. Missed on graphify#161 (2 findings): adding `.lock_expr` to the
   tuple path lost the `#i` path that typed `a, b := rlock s { s.pair() }`.
+  The same holds when a call is replaced by a new one (a plain `rmdir_all` by a lock-aware
+  wipe, rev 102): list every property of the old call, not only its purpose (it removes the
+  target itself, continues past a failure, lists items under `--verbose`, handles every target
+  kind its call site passes, such as a moved-aside or legacy folder), and give each a
+  base-vs-head row. Missed on vlang/v#31848 (adversarial round 1, 2026-11-08, 4 findings):
+  moved-aside folders were never removed again, a failing nested root stopped the rest of the
+  folder from being cleared, and `--verbose` stopped listing what was cleared around a root.
 
 ### Angle C — Cross-file caller/callee trace
 For each changed function, grep for its callers. Does the change break a
@@ -1662,6 +1686,16 @@ declared lock. Pay special attention to:
   fresh lock before committing. Ask, for any fast-path/slow-path split across two
   functions: does the slow path re-verify everything the fast path already ruled
   out, or does it trust a now-stale snapshot?
+- **An unlocked early return is a decision too (rev 102) — a Matrix 3 instance.** In a
+  check, lock, re-check pattern the first check can return without ever taking the lock. List
+  every writer that can remove what that check saw (a compaction, a prune, a rewrite that drops
+  entries it cannot verify yet) and confirm the early return cannot skip a write the caller
+  needs; if one can, take the lock first. Give the early return its own Matrix 3 row, not only
+  the locked commit path. Missed on vlang/v#31848 (adversarial round 1, 2026-11-08, 3
+  findings): `register_tool_cache_root` returned when an unlocked read already listed the root,
+  while a concurrent `record_tool_cache_scan` held the lock and was dropping that root because
+  its folder did not exist yet; the second registration added to close exactly that window
+  took the same early return.
 - **Transport / external-object thread-safety:** When the design calls a shared
   external object (a socket, a TLS `SSL*`, a DB handle, a C library) from more than
   one thread — e.g. a reader thread in `read()` while request threads `write()` —
@@ -2201,6 +2235,14 @@ wire-parsing code.
   existing `assert ... == N * time.<unit>` in the module's own test suite
   before trusting any doc comment or sibling conversion call."
 
+- **G10 A path read back from a file is input (rev 102).** A cache, record or manifest that
+  stores paths is written by code, but read back it holds whatever a crash, an older format or a
+  person left there. Before joining a stored suffix onto a folder the code is about to delete
+  under, reject `..`, `.`, empty and absolute parts (and `/` as a separator on Windows), even
+  when the file lives in a folder only this user can write. Missed on vlang/v#31848
+  (adversarial round 1, 2026-11-08): `roots_in` joined the rest of `root <folder>\..\elsewhere`
+  onto the wiped folder, and the wipe emptied a tool cache outside it.
+
 ### Angle H — Absence search (what MUST exist but doesn't)
 
 **A diff only shows what changed — it cannot show what should have changed
@@ -2314,6 +2356,15 @@ Ask, for every file/function touched or newly introduced:
   `cmd/tools/vwipe-cache_test.v`. No detector: which folders can hold what is a
   fact about the configuration, not a syntactic pattern.
 
+- **Every best-effort failure in a safety mechanism is a disclosed limit or a finding (rev
+  102).** For each `or { return }`, timeout or skipped write in code whose job is to protect
+  something (a registration, a lock, a marker), state what it leaves unprotected when it fires,
+  and find the sentence in the docs that says so. A limit list that reads as complete ("only X,
+  Y and Z are missed") is false while another silent failure exists. Missed on vlang/v#31848
+  (adversarial round 1, 2026-11-08): `register_tool_cache_root` gave up after 10 s on the record
+  lock, or on any write error, and the build went on unregistered, while the docs named only an
+  older V, a hand move and another environment.
+
 **Artifact: absence-search checklist.** One line per question above: the
 requirement/check/path considered, whether it's present (`file:line`) or a
 GAP, and — if a GAP — whether it was fixed this review or logged. State
@@ -2386,6 +2437,14 @@ changes:
   Check each sentence the diff adds against the code's actual condition, word
   for word: "a `-d` option" for a predicate that also accepts `prod`, `test`
   and `js` understates it. Missed on graphify#149 (round 3).
+  Check it end to end (rev 102): run the documented case through the top-level command and
+  its dry run, not only through the function that implements it, and read every
+  standard-library helper the sentence relies on on each platform (`os.home_dir` reads
+  `USERPROFILE` on Windows; `os.is_abs_path` accepts the drive-relative `\cache` there). Missed
+  on vlang/v#31848 (adversarial round 1, 2026-11-08, 5 findings): the help said entries are
+  kept when "a directory is in the way" of the lock, true of `claim()` alone but not of a full
+  wipe, which sorts the directory first and removes it; it named `HOME`, which Windows ignores;
+  it said relative paths are ignored, and `\cache\roots` was accepted.
 
 - **A diagnostic names the token the user wrote.** For each error message a change adds or
   reuses, build the smallest program that triggers it and read the text: the name it prints
@@ -2737,6 +2796,18 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   `.`/`[` branch only. Mechanical gate: run `vlib/v/gen/fastc` probes `unsafe { a + b } * c`,
   `2 * unsafe { a + b }`, `unsafe { unsafe { a } + b } * c` with `-b fastc` and compare with
   the expected value.
+
+- **Duplicated code is tested in both places, or compared (rev 102).** When a change keeps two
+  copies of the same code (a standalone tool and its built-in twin), run the behavior tests
+  against each copy or add a test that compares the copies, so a fix applied to one alone fails
+  a test. When the change adds state that later runs consult (a record, a cache, a `scanned`
+  mark), check every fixture that runs twice: a hand-made fixture added after the first run is
+  invisible to a lookup that a real producer would have fed, so the second run tests nothing.
+  Missed on vlang/v#31848 (adversarial round 1, 2026-11-08, 5 findings): every lock-aware
+  folder-wipe test ran only the standalone copy; the build's registration order, a concurrent
+  register and compaction, and each of the two moved-aside registrations had no test that a
+  plausible wrong version fails; `test_wipe_cache_leaves_a_root_beside_the_selected_folder`
+  never made its folder a root.
 
 **Artifact: test discrimination table.** One row per new gate, clause, branch
 or choice: `condition — mode/configuration reaching it — passing-side test —
