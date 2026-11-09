@@ -453,6 +453,8 @@ recall-driven failure mode this skill has repeatedly found unreliable.
 - [ ] Sibling parity table (new path / sibling / sibling caller guards / matched behavior / intentional divergence / unresolved divergence): <n rows> (or "no new code requiring a sibling check")
 - [ ] Model ledger (Angle K): <one row per function that models another tool: rounds with confirmed findings, added/removed clauses; two in a row means ask the allow-list question before fixing> (or "no model of another tool in this diff")
 - [ ] Accepted-vocabulary inventory (Angle K): <n entries, from which old-code lists> (or "no new or widened rejection in this diff")
+- [ ] Reference-grammar trace (Angle K, rev 101): <reference function and its full line range, one row per consuming branch with adjacency and nesting probe results> (or "no model of another tool's grammar in this diff")
+- [ ] Comment ledger (Angle I, rev 101): <one row per line `detect_external_behavior_claims` lists, and per comment line a rerun's fix adds> (or "no new comment states what another tool does")
 - [ ] Mutation log (Angle J): <one row per added `||`, `&&`, `if` guard, early return, and carried-state boundary: mutation command, test that fails, result> (or "none — no added conditions")
 - [ ] Exclusions declared: <what and why> (or "none — full scope covered")
 ```
@@ -2389,6 +2391,26 @@ changes:
   reuses, build the smallest program that triggers it and read the text: the name it prints
   must be the spelling in the source (`os.Result`, not `os`). Missed on PR 31981 (adversarial
   r3, decl.v:3170): the refusal named the module for a qualified embed.
+- **Every new comment that says what another tool does gets a probe (rev 101).** Run
+  `detect_external_behavior_claims` (in the batch; it lists the comment lines the diff adds
+  that name V, its parser or checker, the C backend, GCC, Clang, TCC or MSVC, or say the code
+  mirrors or matches something). Give each line a row in the comment ledger: the claim, and the
+  program that confirms it, run through every consumer the change names, not one. A claim
+  checked through one consumer is unverified for the rest. Every row is also checked against
+  the code the comment describes and against the other comments on the same rule: a sentence
+  true of the other tool but narrower or wider than this code is a false claim about this code.
+  On a rerun, every comment line the fix adds or edits gets a row too. The detector reads
+  whole-line `//` comments only; a trailing comment after code needs a row by hand. Missed on
+  vlang/v PR 31981 (adversarial round 7, 2026-11-08): "with a default V accepts and ignores it"
+  had been checked through json2 output only, while V's comptime `attrs` records the flag; "an
+  item starts after `;` or `,`, as V's parser forms it" was false; and a test comment written
+  during the fix said "only when a name follows" beside code that also merges `pub`. A blind
+  `/vreview` of the same commit under rev 101 found five of the round's six findings; the one it
+  missed was that last comment, compared with V and not with the code beside it.
+
+  **Artifact: comment ledger.** One row per line the detector lists, and per comment line a
+  rerun's fix adds: `file:line — claim — program and consumers run — code it describes and
+  whether it matches — result`.
 
 **Artifact:** for every doc comment touched or introduced this diff that
 states a parameter's composition or a MUST-order rule, one line: the
@@ -2417,6 +2439,17 @@ adds or changes:
   needs a test that fails when that clause ALONE is dropped. graphify#149:
   `csite.no_main && csite.is_main && is_test_file(file)` had a positive test
   only, so dropping either of the last two clauses passed everything.
+- **Every member of an `in [...]` list is a clause (rev 101).** `tok in [.semicolon, .comma]`
+  is `tok == .semicolon || tok == .comma`: drop each member alone and confirm a test fails.
+  Missed on vlang/v PR 31981 (adversarial round 7, 2026-11-08): every fixture separated items
+  with `;`, so removing `.comma` from the separator list passed the whole test file.
+- **A kill by a platform-gated test is a per-platform kill (rev 101).** Run
+  `detect_platform_gated_tests` (in the batch; it lists test functions whose body starts with
+  a `$if ... { return }` gate). When every failing line of a mutant is in a listed test, the
+  discrimination row names the hosts the kill holds on, and the branch needs an ungated test
+  unless the branch itself is platform-specific. Missed on vlang/v PR 31981 (adversarial
+  round 7): resetting the pending flags at an embedded field, and accepting an embedded field
+  with a default, were pinned only by tests gated on macOS and Linux.
 - **Inputs on which the alternatives differ.** If the code chooses between two
   branches, results or targets, the fixture must make the wrong choice give a
   DIFFERENT observable result. graphify#149: the `$if` fallback test's two
@@ -2790,6 +2823,32 @@ For every diff that adds or widens a rejection:
   "the input is always…" or "X is a…" is a claim the review must test, not a
   premise finders may rely on. Put such sentences into the vocabulary list as
   entries to attack.
+- **Trace the reference grammar end to end before probing (rev 101).** When the diff
+  scans or parses input that another tool also parses (an attribute group, a template, a
+  directive line), read the reference function from its first line to its closing brace and
+  record that line range in the artifact. Stopping at the branch you came to check is not a
+  read. Then write one row per branch that consumes input: what it consumes, and what ends an
+  item there (a separator, a fixed number of tokens, the first closing bracket, the end of the
+  group). From those rows build two probes for each branch, run on default V (or the reference
+  tool), base and head:
+  - **adjacency**: the next item written directly after the branch's construct with no
+    separator (`@[json: 'x' skip]`, `@[foo(x) skip]`, `@[foo skip]`);
+  - **nesting**: each bracket the model counts, nested in itself (`@[foo(bar(x), skip)]`),
+    because the reference may stop at the first closing bracket where the model counts depth.
+
+  A sentence about the reference grammar that comes from a session summary, memory, an earlier
+  round or a code comment is a hypothesis to re-derive from the source in this pass. Missed on
+  vlang/v PR 31981 (adversarial round 7, 2026-11-08, 12 confirmed, 11 unanimous): a summary
+  carried across context compaction said V's attribute items are "separated by top-level `,`
+  or `;`". The review read `parse_field_attrs_with_kinds_mode` up to the dot merge and stopped,
+  never reaching the one-token `: arg` branch, and every probe put a separator between items.
+  V starts the next item as soon as one ends, so `@[json: 'x' skip]` and `@[foo(bar(x), skip)]`
+  lost a flag the base set.
+
+  **Artifact: reference-grammar trace.** The reference function and its full line range, one
+  row per consuming branch (`branch — reference file:line — what ends the item — model
+  file:line — adjacency probe result — nesting probe result`), or "no model of another tool's
+  grammar in this diff".
 - **Read what the next stage actually emits; never infer it from the type.** A
   rule that predicts another tool's behaviour (what register GCC picks, what an
   assembler does with a directive) is a claim about that tool's real input and
@@ -3095,6 +3154,12 @@ Test discrimination table (Angle J):
 
 Model ledger (Angle K):
 <function — rounds with confirmed findings — clauses added/removed — allow-list question asked?> (or "no model of another tool in this diff")
+
+Reference-grammar trace (Angle K, rev 101):
+<reference function and full line range; branch — reference file:line — what ends the item — model file:line — adjacency probe result — nesting probe result> (or "no model of another tool's grammar in this diff")
+
+Comment ledger (Angle I, rev 101):
+<file:line — claim — program and consumers run — result> (or "no new comment states what another tool does")
 
 Acceptance-regression table (Angle K):
 <vocabulary entry — where the old code accepts it (file:line) — valid program — old build result — new build result — disposition> (or "no new or widened rejection in this diff"). On a rerun: the whole PR's inventory, re-run this pass from its file (rev 100), named with its path and row count
