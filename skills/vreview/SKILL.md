@@ -988,6 +988,17 @@ two findings): qualifying selective-import static calls changed `Edge.to`, and
 took the qualified path and lost what the bare form had resolved; only the
 resolver the diff was written for got a compensating fallback.
 
+**A tightened check replaces every copy of the loose one (rev 103).** When a fix
+writes a stricter version of a test the code already makes (a name shape for a
+`contains`, an identity match for a string compare), grep the OLD expression's
+raw text across every file of the change and switch or justify each hit. A new
+helper used at the one call site the finding named leaves the loose test deciding
+the same question elsewhere. Missed on vlang/v#31848 (adversarial round 2,
+2026-11-09, 3 findings): `is_moved_aside_tool_cache_name` replaced
+`contains('.untrusted-')` in the nested-folder pass only; the `--tools` pass kept
+it, so a configured `VTOOLS_CACHE_DIR=~/my.untrusted-cache` was removed whole,
+lock files included.
+
 **A value that used to be empty has readers too: the ones that test for empty.**
 When an expression that returned nothing now returns a weak answer, grep for
 `!= ''`, `or {`, "first non-empty" loops and similar, as well as readers of the
@@ -2242,6 +2253,16 @@ wire-parsing code.
   when the file lives in a folder only this user can write. Missed on vlang/v#31848
   (adversarial round 1, 2026-11-08): `roots_in` joined the rest of `root <folder>\..\elsewhere`
   onto the wiped folder, and the wipe emptied a tool cache outside it.
+- **G11 Code reused on a place others can write keeps no ownership assumption (rev 103).** When
+  code written for a folder only this user controls (repair by `chmod`, take a lock, trust a
+  file's name) is applied to one other accounts could write, such as a folder moved aside
+  because it was untrusted, list each step that assumes the files there are ours and give a
+  planted file at that step: owned by someone else, unreadable, held by another account's lock,
+  a folder where a file is expected. Each must leave the operation working, or be refused with
+  no effect on the other targets. Missed on vlang/v#31848 (adversarial round 2, 2026-11-09,
+  2 findings): the lock-aware wipe, run on a moved-aside folder, tried to `chmod` a planted
+  root-owned lock file with this user's suffix, failed, and its `!` aborted every later wipe
+  pass, so `v wipe-cache` and `v up` failed every time; base removed the folder.
 
 ### Angle H — Absence search (what MUST exist but doesn't)
 
@@ -2807,7 +2828,19 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   folder-wipe test ran only the standalone copy; the build's registration order, a concurrent
   register and compaction, and each of the two moved-aside registrations had no test that a
   plausible wrong version fails; `test_wipe_cache_leaves_a_root_beside_the_selected_folder`
-  never made its folder a root.
+  never made its folder a root. A function that differs between the copies on purpose (the
+  entry point, the option parser) is outside the comparison, so each copy of it needs its own
+  test (rev 103: on round 2 the built-in `wipe_caches` call to the new removal could be deleted
+  with every test green).
+- **What the output says about an object holds for every line that names it (rev 103).** When
+  a fix stops one message from contradicting what the run does ("keeping" a file that is then
+  deleted), find every function that writes a line about the same object, in the real run and
+  in the dry run, and add a test that asserts the contradicting lines are ABSENT, not only that
+  the right line is present. Missed on vlang/v#31848 (adversarial round 2, 2026-11-09, 4
+  findings): the fix took the folder's "keeping" line out, but `wipe_tool_cache_directory`
+  still wrote `keeping <lock>` for each lock file before the folder was removed, and the dry
+  run said `except <folder>` for a folder the real run deletes; the test checked only that a
+  `removing <folder>` line was present.
 
 **Artifact: test discrimination table.** One row per new gate, clause, branch
 or choice: `condition — mode/configuration reaching it — passing-side test —
