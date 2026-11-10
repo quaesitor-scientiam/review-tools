@@ -2500,6 +2500,14 @@ changes:
   rerun's fix adds: `file:line — claim — program and consumers run — code it describes and
   whether it matches — result`.
 
+- **Probe a claim about another tool where the code relies on it (rev 105).** A comment that
+  says what GCC (or another tool) does is probed in the configuration the comment is about, not
+  in the one a fix produces. For a register-allocation claim, compile the program without the
+  clobber or constraint the message suggests, at `-O0` and `-O2`, and print the placement
+  (`# %[x]` in the template). Missed on vlang/v PR 31407 (adversarial round 7, 2026-11-08):
+  "GCC puts a narrow `A` input in `rax`" had been probed with an `rdx` clobber present; without
+  it GCC used `%edx` at `-O2`.
+
 **Artifact:** for every doc comment touched or introduced this diff that
 states a parameter's composition or a MUST-order rule, one line: the
 stated contract, and confirmation (or a logged gap) that every real call
@@ -2771,6 +2779,31 @@ adds or changes:
     compiled and the check accepted it, but `mull` overwrote the input register GCC reused after
     the block, so one call returned 2 instead of 2147483650. An input the template writes needs
     an output (`+a`, `+A`), whatever the message says.
+  - **Every spelling through every classifier (rev 105).** When two helpers decide about the
+    same operand (one says "a plain symbol", another "a label of the template"), each
+    normalisation either one applies (quote stripping, a relocation suffix such as `@PLT`, case
+    folding) is a probe for the other: run the spelling through both. A normalisation that strips
+    text also needs a probe where that text is part of the name, not a suffix: a quoted
+    `"x@y"` beside `getpc@PLT`. Missed on vlang/v PR 31407 (adversarial rounds 7 and 8,
+    2026-11-08 to 10): round 6 taught the symbol test `@` but not the label test, so
+    `call getpc@PLT` to `getpc:` passed as a call to a function; round 7's fix stripped `@`
+    before comparing, so `call "x@y"` to the label `"x@y":` broke.
+  - **A neutral call is a claim about every calling convention (rev 105).** A model that lets a
+    `call` leave the stack as it was assumes what the callee does to the caller's stack. List
+    the conventions the target allows (cdecl, `stdcall`, `fastcall`, a struct return through a
+    hidden pointer, SysV and `ms_abi` stack arguments) and compile a callee of each with
+    `gcc -S`: read its `ret` (a `ret` with a byte count pops arguments) and its stores to `n(%rsp)` (a callee owns
+    the argument slots above its return address and may change them). A fix for the convention a
+    finding names is checked against all of them, on every arch the code runs on. Missed on
+    vlang/v PR 31407: round 7 found i386 `stdcall` and struct-returning callees ending in
+    a 4-byte `ret`; the fix covered 32-bit only, and round 8 found an amd64 callee writing `8(%rsp)`,
+    the slot `push %%rbx` had made.
+  - **A list's near misses are its rejecting side (rev 105).** For a list of mnemonics, names or
+    kinds, the entries a plausible wrong list would add (siblings with a similar name or role,
+    such as `cbw`, `cwde` and `cdqe` beside `cwd`, `cdq` and `cqo`) each need a fixture that fails
+    when added. Testing every member shows the list is not too short, never that it is not too
+    long. Missed on vlang/v PR 31407 (adversarial round 7): no fixture held `cbw` or `cltq`, so
+    adding them to the `rdx` writers passed every test.
   Missed on vlang/v#31407 (adversarial round 4, 2026-11-07): 17 of 19 confirmed findings
   were one of these five shapes, and the stack model's tests held none of them. Round 5 (rev 98, 9 confirmed) found the
   last three: the get-PC `call`, an inert directive after `rep`, jumps that the brief said
@@ -3050,6 +3083,17 @@ For every diff that adds or widens a rejection:
   passes and two adversarial rounds, and each was patched with a new clause (slot
   widths, gaps, frames, stores, one-operand stores) while this rule sat unapplied two
   bullets up.
+- **Advice chosen from the model's silence is part of the model (rev 105).** A message that
+  offers a cheaper fix when the model saw nothing of a kind ("only `rdx` is written, so add
+  `rdx`") decides from a model that sees only what it was taught: a write through an operand
+  reference, or by an instruction it has no table for, reaches the cheaper branch. Give the
+  cheaper advice only when the absence is proven over the whole input, or give the advice that
+  is correct in every case. Such selection logic gets its own model-ledger row. Missed on
+  vlang/v PR 31407: round 7 found the branch chosen from one instruction (a later `xorl %%eax`
+  made it wrong); its fix chose from every modelled write, and round 8 confirmed five findings
+  where `notl %[x]`, `cwtl`, `bswap`, `xchg` or `lods` changed the input, the advice compiled,
+  the check accepted it, and GCC `-O2` returned the wrong value. Both rounds broke the existing
+  Angle A rule "An empty result proves only what its producer can see".
 - **A rerun reviews the PR, not the fix.** Every `/vreview` pass after a fix round fills the
   Angle K table, the Angle J mutation log and the variation table for the whole PR diff, not
   for the clauses the fix added. Keep the inventory in a file (one probe per vocabulary entry
