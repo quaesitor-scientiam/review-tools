@@ -44,6 +44,15 @@ if [ -n "$rev" ]; then
     add "no page item marked '(rev $rev)': an angle card check-item and angleData panel entry per new bullet, or a Phase R <li> for a process rule"
 fi
 
+# Skill text: Claude Code replaces `$N` (a dollar sign and a digit) in a SKILL.md
+# with the Nth word of the skill's arguments when it loads, so `ret $4` reached the
+# reader as `ret rev` (rev 105). `$ARGUMENTS` is meant and is left alone.
+dollar_digit="$(grep -nE '\$[0-9]' "$root"/skills/*/SKILL.md 2>/dev/null | sed "s|^$root/||")"
+[ -n "$dollar_digit" ] && while IFS= read -r r; do
+  text="${r#*:*:}"
+  add "${r%%:*}:$(printf '%s' "$r" | cut -d: -f2) has a \$ and a digit, which skill loading replaces with an argument; reword it: ${text:0:80}"
+done <<<"$dollar_digit"
+
 # Corpus rows: what this change adds to the Markdown table must be four cells
 # (Class | Angle | What was missed | Detector / check) and must be matched by the
 # same number of rows in the data file. Compared on the uncommitted diff, or on

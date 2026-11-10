@@ -23,6 +23,11 @@ machines and sessions add revs, and two commits with the same rev must be renumb
 Put each bullet under the angle the corpus row will name, not at the end of the file. Name the
 miss that motivated it (PR or branch, round, date).
 
+Never write a `$` followed by a digit in a `SKILL.md`: Claude Code replaces `$4` with the
+fourth word of the skill's arguments when it loads, so `ret $4` reached the reader as `ret rev`
+(rev 105). Say it in words (`a ret with a byte count`). `$ARGUMENTS` is meant and is fine. The
+check script flags the pattern.
+
 ## 3. The page: `reference/code-review-reference.html`
 
 All four parts, every rev:
