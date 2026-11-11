@@ -2978,6 +2978,17 @@ For every diff that adds or widens a rejection:
   each entry came from, one entry per row. A list written from memory, or handed to
   finders in a prompt, repeats the author's blind spots: #31407's round-four finders
   got a list of binding kinds with no literal in it, and none tried one.
+- **A list that mirrors another tool is enumerated from that tool (rev 106).** When code keeps
+  its own copy of another tool's vocabulary (the prefix words or mnemonics an assembler takes,
+  the flags a compiler accepts), derive the copy from the tool, not from its manual or from
+  memory: feed it every candidate word and keep the ones it accepts, reading the output (the
+  encoded bytes, the parsed form) to tell the vocabulary from coincidence. Take candidates from
+  the tool's own binary, including every suffix of each string, since a tail-merged string table
+  stores `wait` only inside `fwait`. Missed on vlang/v PR 31407 (adversarial round 9, 2 of 3):
+  the unread-prefix list was written from the parser's list and the segment words; GNU as also
+  takes `wait`, `ht`, `hnt`, `word`, `aword` and `adword`, each read as a mnemonic with the real
+  instruction as an operand, so a balanced save and restore was reported. The same pass found the
+  string aliases `smov`, `ssto`, `slod`, `scmp` and `ssca`, which a `rep` count must cover.
 - **Build the pre-PR program, not the test.** For each vocabulary entry, write
   the smallest valid program that uses it and that the old build accepts; run
   it through both builds (or through the checker's fixture mode when the host
