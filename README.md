@@ -12,6 +12,7 @@ WSL and macOS. Git is the sync mechanism; nothing is copied by hand.
 | `skills/code-review/` | `run_detectors.sh` (thin bash runner kept for WSL/macOS habit; same manifest), H2/QUIC conformance matrices, `rfc-texts/`. The shell detectors were retired once their V ports passed the same fixtures |
 | `skills/phase-r/`, `skills/codex-respond/`, `skills/luna-respond/`, `skills/adversarial-review/` | Companion skills |
 | `detectors/` | The detectors, one V program each (`detect_*.v`, same `<file> <base_copy_or_empty>` contract), and `run_detectors.v`, the batch runner: computes targets and base revision with git, compiles the detectors once into a hash-keyed cache under the OS temp dir, dispatches by a basename manifest. No bash needed |
+| `probes/` | `vprobe.v`, the executed probes `/vreview` hard rule 4 requires: `matrix` (base build against head build per place, kind of object and account), `race` (several copies of a command at once), `mutate` (one test run per one-line mutant) and `trace` (which inputs each caller of a function is tested with). The file's header describes the spec |
 | `hooks/` | `hooks.json` (plugin hook wiring), `require_code_review.sh` (commit gate), `check_powershell_parse.ps1`, `check_ps1_file_parse.ps1` (reference copies, wired globally) |
 | `reference/` | `code-review-reference.html` quick reference, its `code-review-misses-data.js` table data, and the `code-review-misses.md` narrative corpus |
 
@@ -24,7 +25,8 @@ corpus rows in one commit, and the commit gate checks all three.
 
 See [MIGRATION.md](MIGRATION.md). Short form: clone, `claude plugin marketplace add <clone>`,
 `claude plugin install review-tools@review-tools-local --scope user`; update with `git pull`.
-Run the detector fixture suite with `bash tests/run_fixtures.sh` (see `tests/README.md`).
+Run the detector fixture suite with `bash tests/run_fixtures.sh` (see `tests/README.md`). Run the
+probe self-test with `bash tests/vprobe/selftest.sh [path/to/v]` on Linux, WSL or macOS.
 
 ## History
 

@@ -62,3 +62,12 @@ case should be the smallest V file that trips that pattern; the known_good case
 should be the same file with the bug fixed the way the detector expects (the cap,
 the guard, the `.clone()`), not a file the detector cannot see at all. A
 known_good that is merely "unrelated code" proves nothing about the fix path.
+
+## The probe self-test
+
+`tests/vprobe/selftest.sh [path/to/v]` builds `probes/vprobe.v` and runs each of its four
+commands on inputs whose right answer is known: a mutant a helper kills, a flaky test, a test that
+fails whenever its source file is edited, a hang, a crash, a held-open window, a per-caller gap.
+Every case states the line the probe must print and its exit code, so a probe that gives the wrong
+verdict, or ends "nothing flagged" for something it did not run, fails. It needs a POSIX shell
+(Linux, WSL or macOS). It is separate from `run_fixtures.sh`, which covers the detectors only.

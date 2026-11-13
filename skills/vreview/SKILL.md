@@ -63,6 +63,58 @@ memory, because memory does not sync.
    (rev 91) four rounds confirmed 22, 13, 20 and 12 findings and ~20M subagent tokens, the
    last three commits changed no edge of the V tree, and one of round 4's 12 occurs in a real
    tree: the 164 false edges between two clones, which is what the review is for.
+   **Keep a class ledger; a class found in two rounds in a row stops the patching (rev
+   107).** After each round (inline or adversarial), give every confirmed finding a defect
+   class (a race on state no lock covers, a planted object in a shared folder, a fix applied
+   to part of its sites, a doc claim) and keep one row per round: the round, the class, the
+   count. When one class has findings in two consecutive rounds, the next step is not a
+   fix: ask the user whether a design change removes the class (a lock that covers the
+   state, an allow-list of owners or shapes, a generated list), and name what it would cost.
+   Angle K's model ledger is this rule's instance for code that imitates another tool; this
+   one binds for every code, concurrency and untrusted folders included. Missed on
+   vlang/v#31848 (adversarial rounds 3 to 5, 2026-11-11, 9, 9 and 11 confirmed): races on
+   the unlocked folder listing were patched one window per round (a root moved aside, a
+   folder replaced, a root created, a second wipe), and other accounts' objects one kind per
+   round (lock files, entries, junk, siblings), while no rule asked for a wipe-wide lock.
+4. **A row that can be run is run (rev 107).** When a required table says what the program
+   does with an object, an account, a second copy of itself or a changed line, and the
+   program can be started, the cell comes from a run, not from reading the code. The
+   plugin's probe runner does the runs: `${CLAUDE_PLUGIN_ROOT}/probes/vprobe.v` (its header
+   describes the spec file).
+   - `matrix`: one run per place, kind of object and account, with the base build and with
+     the head build. It fills Angle G12's shared-place table.
+   - `race`: several copies of the command at once, or one copy with a timing window held
+     open while another party acts in it. It fills the Angle F Matrix 3 read rows.
+   - `mutate`: one run of the tests per one-line mutant. It fills Angle J's mutation log.
+   - `trace`: one run of the tests over an instrumented copy. It fills Angle J's "tested
+     through every caller" rows: which shapes of input reach a changed predicate through
+     which caller, and in which tests.
+
+   Paste the probe's flagged rows into the artifact and name the command. Each flagged row
+   then gets one of three dispositions, written beside it: a finding, a change the PR
+   description and the docs already state, or a limit to disclose. "The docs state it"
+   quotes the sentence, and the sentence has to cover that row's kind of place, object and
+   account: one about folders several accounts share does not cover a private folder. A
+   row where base removed or succeeded and head keeps or fails is a finding until such a
+   quote exists. A cell filled by reasoning where a run was possible is marked unverified,
+   and a statement about what base did is never taken from reading: build base and run it.
+   A row no probe reaches (a platform this machine lacks, code no command starts) is still
+   judged by reading and reported with that label: "not run" describes the evidence, it is
+   never a disposition, and it never parks a finding the code supports. A window too narrow
+   to hit by timing is not such a row: `race` holds it open (Angle F), so neither "not
+   reproduced" nor "benign by reading" is available for it.
+   Skipping the probes on a diff they apply to is a skipped step under hard rule 2: ask.
+   Why: on vlang/v#31848 (2026-11-11) five blind `/vreview` runs under the rev 107 prose
+   rules found 7 to 10 of the 11 round-5 findings, and the misses moved from run to run.
+   Two runs filled the "root-owned leftovers in a private folder" cell with "base failed
+   here too". `matrix` measured in under a minute that base removed them and head keeps
+   them, that a wipe run as root keeps the whole tool cache, and that a file named
+   `.toolcache.lock` crashes every wipe; `race` showed a copy failing in 8 of 20 rounds.
+   A sixth blind run, with the probes, still found only 6 and partly 2: it filed the
+   private-folder row under the docs' sentence about shared folders, parked a read row as
+   "not run", and spent its ten mutants away from the name parser. Hence the quote rule
+   above, the place labels and generated name shapes (Angle G12), and the generated
+   mutants of named functions (Angle J).
 
 ## Plugin paths
 This skill ships in the `review-tools` plugin (git repo, installed at user scope).
@@ -451,6 +503,9 @@ recall-driven failure mode this skill has repeatedly found unreliable.
 - [ ] Repeat-offender list: <n rows> (or "none")
 - [ ] New type/function contract list: <n rows> (or "none")
 - [ ] Sibling parity table (new path / sibling / sibling caller guards / matched behavior / intentional divergence / unresolved divergence): <n rows> (or "no new code requiring a sibling check")
+- [ ] Class ledger (hard rule 3, rev 107): <one row per round and defect class with its confirmed count; a class in two consecutive rounds means ask the design question before fixing> (or "first round, no confirmed findings yet")
+- [ ] Shared-place table (Angle G12, rev 107): <place kind x object kind cells, head vs base> (or "the diff acts on no folder other accounts may write")
+- [ ] Probe runs (hard rule 4, rev 107): <`vprobe` matrix / race / mutate: command, exit code, flagged rows, each row's disposition> (or "N/A — the diff has nothing a command can run", or "not run — reason, and the user's answer")
 - [ ] Model ledger (Angle K): <one row per function that models another tool: rounds with confirmed findings, added/removed clauses; two in a row means ask the allow-list question before fixing> (or "no model of another tool in this diff")
 - [ ] Accepted-vocabulary inventory (Angle K): <n entries, from which old-code lists> (or "no new or widened rejection in this diff")
 - [ ] Reference-grammar trace (Angle K, rev 101): <reference function and its full line range, one row per consuming branch with adjacency and nesting probe results, plus the caller's line range and a leftover row per token class (rev 104)> (or "no model of another tool's grammar in this diff")
@@ -1589,6 +1644,53 @@ TOCTOU gap). This is the general shape behind the singleflight-registration
 TOCTOU, the wmu→fmu recheck-completeness gap, and the partial-guard-miss
 bullets below: something is decided under protection, then acted on after
 that protection lapsed.
+**Take Matrix 3's rows from the reads, not from the locks (rev 107).** A row
+for each lock the code takes misses every decision made under none. Grep the
+changed functions for each read of shared state that a later action depends
+on (a folder listing, `stat`, `exists`, `real_path`, a file or record read,
+a map shared across threads) and give each its own row: what may change it
+between the read and the action (another process, another account, a second
+copy of this same program), and what the action does then. Order matters
+inside one row: an identity taken after the listing it guards misses a swap
+in between. A removal that fails because a concurrent copy removed it first
+is a row too, and the row follows the action into the library call: a
+recursive delete (`rmdir_all`, `rm -r`) lists and removes children one by
+one and fails on the first child another copy removed, so an `exists` check
+before it decides nothing. A row whose result is that the program loses or
+removes something the change exists to protect (a live build, a held lock, a
+user's data) is a finding even where base behaved the same: "same as base"
+excuses a regression check, not the change's own promise. Report it, or
+disclose it in the docs as a limit. Missed on vlang/v#31848 (adversarial rounds 3 to 5, 2026-11-11,
+6 findings): rows named the record lock and the build locks; the folder
+listing, the folder identity taken after it, and a root created after the
+walk had no row, and two concurrent wipes failed each other with ENOENT.
+**Run the second copy with `vprobe race` (rev 107, hard rule 4).** Every read
+row that names a second copy of the program, or another process, gets a run:
+the matrix's spec with `copies` and `rounds`, plus an `actor` command for the
+third party a row names (a build that creates or moves a folder). A round
+where a copy of the head build fails, or where the final tree differs from
+the one a single copy leaves, is a finding or a disclosed limit, also when
+base fails more often. The report also counts the actor's own failures: a
+build that fails beside the wipe is the row's result as much as a failing
+wipe. A race the rounds did not hit is not shown absent: hold its window open.
+**Hold a narrow window open (rev 107, hard rule 4).** For a read row whose
+window timing cannot hit (a listing, then an identity or a check, then the
+action), put a pause at the row's line and let the other party act in it. In
+the `race` spec: `edits` with the file (in a scratch copy of the tree), the
+line, the text on it and the same text with `{pause}` in front; `build` with
+the command that builds the program from that copy, and `head` naming what it
+builds; `in_pause` with the command the other party would run in that window
+(the rename, the new folder, the second writer); `copies` 1. The probe builds
+the program with the pause, restores the source, runs `in_pause` when the
+program stops there, and prints what the program printed afterwards and how
+the final tree differs from an undisturbed run. A round where the program
+never stopped at the pause is printed as NOT MEASURED, and the probe exits 1:
+the pause is on a line that run did not reach. Compare both with what the
+docs and comments promise for that case. `{pause}` is V code; for another
+language write the two statements yourself (create the `at_pause` file in
+`work`, wait for `go_on`). One pause per row: the gap between a listing and
+the identity taken for it, between a check and the act it guards, between
+two passes over one folder.
 
 **Artifact: concurrency matrices.** All three tables above, one set per
 diff. State "none" for a matrix with no applicable rows (e.g. a diff with
@@ -2263,6 +2365,53 @@ wire-parsing code.
   2 findings): the lock-aware wipe, run on a moved-aside folder, tried to `chmod` a planted
   root-owned lock file with this user's suffix, failed, and its `!` aborted every later wipe
   pass, so `v wipe-cache` and `v up` failed every time; base removed the folder.
+- **G12 A shared-place table: kinds of place by what can appear there (rev 107).** When the
+  diff acts on a folder other accounts may write (a shared temp folder, a moved-aside or
+  sibling folder found by name), fill a table. Rows: every kind of place the code can reach,
+  a private folder of this user, a shared sticky folder, one owned by root (a `sudo` run, or
+  leftovers of one), one owned by another account. Columns: what can exist there, taken from
+  the operating system's list, not from the names the code sorts: a file, a folder, a symlink,
+  a hard link, a FIFO, an unreadable object, another account's object, a name that only nearly
+  matches the expected shape. Each cell gives what the code does and whether base did the same.
+  A fix that widens what is kept or removed gets a base-vs-head row for every place kind, not
+  only the shared one the finding named. Two more axes: the account running the program (the
+  user, root through `sudo` with the user's home or environment kept, another account), since
+  a check against the running account's id flips meaning when root runs it; and every folder
+  the code finds by name pattern (siblings, moved-aside copies) as its own place, with rows for
+  an exact match, a near-miss name, a non-folder at that name, and one another account owns.
+  Missed on vlang/v#31848 (adversarial round 5,
+  2026-11-11, 3 findings): round 4's "keep what other accounts own" also kept root-owned
+  leftovers in a private root and a `sudo` wipe kept the user's whole cache, both removed by
+  base; `<root>.untrusted-*` siblings were taken whatever their shape, type or owner, so
+  another account's folder there failed every wipe.
+  **Fill the table with `vprobe matrix` (rev 107, hard rule 4).** Build the base revision
+  beside the head build (a scratch worktree of the merge base, or a copy of the head tree
+  with the changed files swapped for their base versions when nothing else differs). In
+  the spec set `cmd`, every environment variable the command reads (a path under `{root}`,
+  or `""`), `prepare` with the real commands that create the tree, `places` with every
+  folder the code acts on (private, shared, and the ones it uses only when they exist),
+  `named` with each name pattern the code looks for (an exact match and a near-miss), and
+  `shapes` with every name shape a parser in the diff splits (such as `{name}-{id}.ext`,
+  with its values): the probe makes the malformed names itself (a field empty, dropped, not
+  digits, with a leading zero), so none depends on the reviewer thinking of it. Write each
+  place and name as `label: path`, the label being its kind of place (`private`, `shared`,
+  `root's`, `found by name`): rows are grouped by it and each gets its own disposition, so
+  a private folder never shares one with a shared folder. Start it
+  as root on Linux or WSL (`wsl -u root`), so the other-owner kinds and the root account
+  run; started as a user it prints the rows it did not run, and those stay unverified.
+  Give `work` a new or empty folder: the probe deletes `root` and `template` inside it and
+  refuses a folder it did not make. A cell it could not run is listed as skipped and the
+  probe exits 1: a skipped cell is unverified, not clean.
+  Read every row: `DIFF object` (one build keeps what the other removes), `DIFF exit`,
+  `FAILS on both` (base failing too excuses nothing in a place the change touches), `DIFF
+  others` (the object changed what else was kept or removed) and `ESCAPE` (something
+  outside the tree changed). The report's last section pairs each output line that names
+  the object or its place with the object's final state: "wiped" over a kept object, or
+  "kept" over one that is gone, is an Angle I finding. The probe is a measuring tool, so
+  check it too: a row that makes no sense gets one run by hand before it is reported.
+  When the program under test is V itself, put `V_C_ERROR_BUG_REPORT_DISABLED=1` in `env`
+  and never compile a program in `prepare` beyond what the tree needs: a C compile that
+  fails under the probe's environment uploads an automatic bug report otherwise.
 
 ### Angle H — Absence search (what MUST exist but doesn't)
 
@@ -2507,6 +2656,17 @@ changes:
   (`# %[x]` in the template). Missed on vlang/v PR 31407 (adversarial round 7, 2026-11-08):
   "GCC puts a narrow `A` input in `rax`" had been probed with an `rdx` clobber present; without
   it GCC used `%edx` at `-O2`.
+- **A claim about what happens to an object later is traced through the rest of the run (rev
+  107).** When a message, help line or doc sentence says what becomes of an object after the
+  current step ("left for a later wipe", "kept from then on", "retried next time", "left as it
+  is"), follow that object forward from the line that prints the claim through every step the
+  run still takes: the rest of the function, then each pass the callers run afterwards. Any
+  later step that can remove, change or reprocess the object in the same run makes the claim
+  false. The function that prints the claim is the wrong place to check it, since the steps
+  that break it come after it returns. Missed on vlang/v#31848 (adversarial round 5,
+  2026-11-11): the wipe printed that a root moved aside during the wipe was "left for a later
+  wipe", and the caller's clear-around pass removed that idle moved-aside folder in the same
+  run.
 
 **Artifact:** for every doc comment touched or introduced this diff that
 states a parameter's composition or a MUST-order rule, one line: the
@@ -2873,6 +3033,61 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   entry point, the option parser) is outside the comparison, so each copy of it needs its own
   test (rev 103: on round 2 the built-in `wipe_caches` call to the new removal could be deleted
   with every test green).
+- **A hand-written list in a test that has been missed twice is generated instead (rev
+  107).** When a test checks against a list (the functions two copies share, the flags a
+  table covers) and the list has already lagged behind the code once, do not extend it by
+  hand again: make the test derive it from the source (every same-named function, const and
+  struct in both files) and keep only an explicit list of what differs on purpose, so new
+  code is covered by default. Missed twice on vlang/v#31848 (adversarial rounds 4 and 5,
+  2026-11-11): the copies test's `shared` list was extended after round 4, and round 5 found
+  a const, two structs and three helpers still missing from it.
+- **A changed predicate is tested through every caller, a second run included (rev 107).** When
+  a fix changes what a predicate accepts (what marks a root, which names count as ours), grep
+  every caller of the predicate and of any function that copies its logic, and give each one a
+  test that the change decides. Where the program stores what the first run found (a record, a
+  cache, an index) and a later run reads it back, that later run is a separate caller: run the
+  fixture twice and assert on the second run. A test covers the change only if it asserts the
+  case the change newly accepts (or newly rejects): a test of what the predicate still refuses,
+  run through the same caller, does not cover a widening. Missed on vlang/v#31848
+  (adversarial round 5, 2026-11-11): round 4 let a lock file of any user mark a root; the
+  test reached it only through the walk of a first wipe, never through the record lookup
+  a second wipe uses.
+  **Measure it with `vprobe trace` (rev 107, hard rule 4).** Give the probe `source`,
+  `test_file`, `test`, and every new or changed predicate in `functions`. It wraps each call
+  of them and of the bool functions that call them, runs the tests once, and prints for each
+  shape of input which caller brought it to the predicate and in which tests. Every line of
+  its Gaps section is an accepted input that one caller is tested with and another never
+  sees: a missing test, or a caller that cannot receive that input. Say which, per line,
+  with the reason. Read the tables as well, for a refused input some caller never sees and
+  for call sites no test reaches. It sees only tests that run the code in their own process;
+  for a test that starts a separately built program the rows stay judged by reading.
+- **Every parser of a name shape gets its own malformed-name tests (rev 107).** For each
+  function that splits or matches a structured name (`<tool>-<hash>.<uid>`,
+  `.<tool>.<uid>.toolcache.lock`), test the field boundaries in that function: empty field,
+  non-digit where digits are expected, leading zeros, digits followed by more text, a missing
+  or doubled separator. Covering one parser does not cover a sibling parser of a related
+  shape: list them all (grep the separator or suffix literal) and tick each one. Missed on
+  vlang/v#31848 (adversarial round 5, 2026-11-11): no test gave the lock-name matcher a uid
+  part that is not digits, and the entry-name matcher had no boundary tests either (an
+  entry with a leading-zero uid counted as another user's).
+- **Run the mutants with `vprobe mutate`, and read which test killed each (rev 107, hard rule
+  4).** Name every new or changed predicate and every name parser in `functions` (with
+  `source`, their file): the probe generates one mutant per clause of each `&&`/`||`
+  condition and per early-return guard of those functions, and these run before any
+  hand-picked mutant (`--list` prints them unrun). Give further mutants as a file, line,
+  text and replacement. The probe applies each, runs the
+  tests, restores the file, and prints KILLED with the tests that newly fail, or SURVIVED. A
+  survivor is a gap. So is a mutant of a changed predicate that only a test about something
+  else kills: name the test that should have failed and add it. Run it on a scratch copy of
+  the tree, not on the PR's worktree. The probe guards its own verdicts: it runs the
+  unmutated tests (twice first, again during the sweep) and a null mutant (a comment
+  appended to the file), reruns every killed mutant once, and ignores a test that fails
+  without a mutant, under the null mutant, or in only one of two runs of the same code. It
+  names those tests. A flaky test, or one that fails whenever the source file is edited,
+  in the diff's own test files is a finding of its own. An INVALID row was not tested: the
+  probe exits 1 for it, and it is neither a kill nor a survivor. On vlang/v#31848 two blind
+  runs took a test of what the changed predicate still refuses for coverage of what it
+  newly accepts; the run that ran mutants reported the gap.
 - **What the output says about an object holds for every line that names it (rev 103).** When
   a fix stops one message from contradicting what the run does ("keeping" a file that is then
   deleted), find every function that writes a line about the same object, in the real run and
@@ -3362,6 +3577,7 @@ Concurrency matrices (Angle F):
 Matrix 1 (shared field — readers — writers — lock): <rows> (or "none")
 Matrix 2 (wait predicate — all mutators — wake/broadcast path): <rows> (or "none")
 Matrix 3 (action sized under lock — committed under same protection?): <rows> (or "none")
+Matrix 3 read rows (rev 107): <read of shared state — what may change it before the action — what the action then does> (or "none")
 Race detector run (Angle F, rev 95): <command — where it ran — exit code — races reported> (or "N/A — no concurrent code in this diff", or "not run — reason")
 
 Negative evidence / skipped areas:
@@ -3372,6 +3588,15 @@ Absence-search checklist:
 
 Test discrimination table (Angle J):
 <condition — mode/configuration reaching it — passing-side test — rejecting-side test or GAP (observables considered) — plausible-wrong mutation — result — fixture lines that failed> (or "no new conditions")
+
+Class ledger (hard rule 3, rev 107):
+<round — class — confirmed count — design question asked?> (or "first round")
+
+Shared-place table (Angle G12, rev 107):
+<place kind — object kind — head behavior — base behavior> (or "the diff acts on no folder other accounts may write")
+
+Probe runs (hard rule 4, rev 107):
+<probe (matrix / race / mutate) — command — exit code — flagged rows as printed — per row: finding / change the PR states / disclosed limit; rows not run and why> (or "N/A — the diff has nothing a command can run")
 
 Model ledger (Angle K):
 <function — rounds with confirmed findings — clauses added/removed — allow-list question asked?> (or "no model of another tool in this diff")
