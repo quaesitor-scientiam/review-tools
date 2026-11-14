@@ -121,7 +121,9 @@ deny() {
 #   - else any commit touching skills/ or detectors/ that comes AFTER the last
 #     commit touching the HTML reference, by ancestry (rev-list), not by
 #     timestamp: a rebase, amend or cherry-pick gives commits the same second,
-#     and a merge can bring in an older-dated skill commit  -> stale.
+#     and a merge can bring in an older-dated skill commit  -> stale. A merge
+#     counts by what it changes against its first parent, the branch it was
+#     merged into.
 # Only the HTML counts as the sync, not the rest of reference/: the corpus
 # (code-review-misses.md, code-review-misses-data.js) lives there too, and a
 # skill change committed with only a corpus edit used to pass. The gate checks
@@ -195,7 +197,13 @@ if [ -f "$html" ] && { [ "$plugin_is_git" -eq 0 ] || [ "$same_repo" -eq 1 ]; }; 
     else
       last_html="$(git -C "$doc_root" log -1 --format=%H -- "$html_rel" 2>/dev/null)"
       if [ -n "$last_html" ]; then
-        late="$(git -C "$doc_root" rev-list -1 --full-history "$last_html..HEAD" -- skills detectors 2>/dev/null)"
+        # --first-parent: each commit is compared with the line of history it was made on.
+        # A merge of a branch cut from an older main differs from that branch in skills/
+        # without changing a skill file on main, and --full-history listed it: after the
+        # merge of 2026-11-14 (734ea9b) every commit in the plugin repo was blocked, the
+        # one that updates the page included. A merge that does bring a skill change
+        # into main still differs from its first parent and is listed.
+        late="$(git -C "$doc_root" rev-list -1 --first-parent "$last_html..HEAD" -- skills detectors 2>/dev/null)"
         if [ -n "$late" ]; then
           stale="commit $(git -C "$doc_root" log -1 --format=%h "$late") touched skills/ or detectors/ after the last change to $html_rel"
         fi
