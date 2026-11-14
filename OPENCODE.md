@@ -11,9 +11,17 @@ rev is blocked).
 
 | OpenCode | Claude Code equivalent |
 | --- | --- |
-| `@vreview`, `@phase-r`, `@review-respond`, `@adversarial-review` (skills) | `/review-tools:vreview` etc. |
-| `/vreview`, `/phase-r`, `/review-respond`, `/adversarial-review` (commands in `.opencode/commands/`) | bare `/vreview` etc. via the plugin |
+| `@vreview`, `@phase-r`, `@review-respond` (skills) | `/review-tools:vreview`, `/review-tools:phase-r`, `/review-tools:review-respond` |
+| `/vreview`, `/phase-r`, `/review-respond` (commands in `.opencode/commands/`) | same, invoked as `/review-tools:<name>` via the plugin |
 | V runner `detectors/run_detectors.v` | same (preferred on Windows PowerShell in both runtimes) |
+
+No shim is shipped for `adversarial-review`: Step 3 of
+`skills/adversarial-review/SKILL.md` (lines 37-38, 159-204) is a Claude Code
+Workflow script (`export const meta`, `pipeline`, `parallel`) with a standing
+pre-authorization for the Workflow tool. OpenCode has no Workflow tool and the
+skill defines no fallback, so a shim would fail or force the agent to improvise
+a different multi-agent run. The skill stays discoverable through the `skills`
+array, but under OpenCode only its Steps 1-2 (scope, lenses) are executable.
 
 `skills/code-review/` holds no `SKILL.md`, so it registers no skill — as in
 Claude Code, it is content the `vreview` skill reads (matrices, `run_detectors.sh`).
@@ -52,7 +60,9 @@ cp <clone>/.opencode/commands/*.md ~/.config/opencode/commands/
 ```
 
 or copy them per project into `<project>/.opencode/commands/`. Saving a file
-takes effect without restarting OpenCode.
+takes effect without restarting OpenCode. Confirm registration against the
+live server: `opencode api get /api/command` lists each shim by name with its
+frontmatter description.
 
 ## Runtime path mapping
 
@@ -78,6 +88,19 @@ Related consequences:
   resource.
 
 ## Verify
+
+Tested on OpenCode V2 (`opencode v2.0.21`; config uses V2 `permissions` with a
+`shell` action — V1's `permission`/`bash` names do not apply):
+
+- Skills: with `"skills": ["<clone>/skills"]` the server log shows
+  `skills rescanned` from the repo path, and all four skills advertise with
+  their full folded multi-line `description:` frontmatter. `vreview` and
+  `review-respond` were additionally loaded through the `skill` tool.
+- Commands: `opencode api get /api/command` on the live server lists
+  `vreview`, `phase-r` and `review-respond` with their frontmatter
+  descriptions. Each template names the skill to load and forwards
+  `$ARGUMENTS`; no full live `/vreview` review pass was run as part of this
+  change.
 
 ```sh
 cd <clone>
