@@ -1476,6 +1476,14 @@ fn cmd_mutate(given Spec, list_only bool) int {
 		runs << run
 		tested++
 		if tested % 4 == 0 && i + 1 < spec.mutants.len {
+			// The source is restored, but the built program is still the mutant's: rebuild it, or
+			// this control tests the last mutant and counts its kills as failing controls.
+			if spec.build != '' {
+				b := os.execute(spec.build)
+				if b.exit_code != 0 {
+					fail('the build command fails on the restored source: ${first_line(b.output)}')
+				}
+			}
 			code, names, _, crash := control_pass(spec.test, pattern)
 			control_exits << code
 			if crash != '' {
