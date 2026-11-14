@@ -165,8 +165,12 @@ fn is_lock_name(name string) bool {
 	}
 	return name.len > 6 && name[1] != `.`
 }
+
+fn pair(a string) (bool, string) {
+	return a == '', a
+}
 EOF
-echo '{"test": "true", "source": "'$m'/pred.v", "functions": ["is_lock_name"]}' > "$m/list.json"
+echo '{"test": "true", "source": "'$m'/pred.v", "functions": ["is_lock_name", "pair"]}' > "$m/list.json"
 "$P" mutate "$m/list.json" --list > "$m/list.out" 2>&1
 expect_exit list 0 "$m/list.out" $?
 has list "$m/list.out" "pred.v:4 \| \`!name.starts_with\('.'\) \|\| \`"
@@ -174,6 +178,42 @@ has list "$m/list.out" "pred.v:4 \| \` \|\| !name.ends_with\('.lock'\)\`"
 has list "$m/list.out" 'pred.v:7 .* -> `if false \{` \(is_lock_name: guard never fires\)'
 has list "$m/list.out" 'pred.v:10 \| `name.len > 6 && `'
 has list "$m/list.out" 'pred.v:10 \| ` && name\[1\] != `.``'
+# Several returned values are not one answer to replace.
+lacks list "$m/list.out" 'pair: the answer is always'
+
+# The functions come from what changed since an earlier revision of the file, and a lone
+# comparison, a call of a local string function and a guard with a comment under it get mutants.
+cat > "$m/pred2.v" <<'EOF'
+module main
+
+fn spell(path string) string {
+	return path.to_lower()
+}
+
+fn same_place(a string, b string) bool {
+	// one comparison, stored
+	found := spell(a) == b
+	if found {
+		// say so
+		return true
+	}
+	return a == b
+}
+
+fn untouched(a string) bool {
+	return a == ''
+}
+EOF
+sed 's/found := spell(a) == b/found := a == b/' "$m/pred2.v" > "$m/pred2_base.v"
+echo '{"test": "true", "source": "'$m'/pred2.v", "changed_from": "'$m'/pred2_base.v"}' > "$m/list2.json"
+"$P" mutate "$m/list2.json" --list > "$m/list2.out" 2>&1
+expect_exit list2 0 "$m/list2.out" $?
+has list2 "$m/list2.out" 'added to `functions`: same_place$'
+has list2 "$m/list2.out" 'pred2.v:9 \| `spell\(a\) == b` -> `true` \(same_place: the answer is always true\)'
+has list2 "$m/list2.out" 'pred2.v:9 \| `spell\(a\)` -> `a` \(same_place: spell\(\) dropped\)'
+has list2 "$m/list2.out" 'pred2.v:10 .* -> `if false \{` \(same_place: guard never fires\)'
+has list2 "$m/list2.out" 'pred2.v:14 \| `a == b` -> `false`'
+lacks list2 "$m/list2.out" 'pred2.v:18 '
 
 # ---------------------------------------------------------------- matrix
 x="$tmp/x"
@@ -197,7 +237,14 @@ expect_exit matrix 1 "$x/matrix.out" $?
 has matrix "$x/matrix.out" 'private, name \| own_file \| 0 removed \| 0 kept \| DIFF object: base removed, head kept \| cache/x.keep'
 has matrix "$x/matrix.out" 'DIFF exit: base 0, head 3.*cache/\.keep'
 lacks matrix "$x/matrix.out" '\| private \| own_file \|'
-has matrix "$x/matrix.out" 'NOT RUN: the other-owner kinds'
+has matrix "$x/matrix.out" 'NOT RUN: the other-owner kinds \(.*other_link_to_dir'
+lacks matrix "$x/matrix.out" '^NOTE: the spec was last changed before'
+
+# A spec older than the head build says so: what the build gained since has no row yet.
+sleep 1.1
+touch "$x/head.sh"
+"$P" matrix "$x/matrix.json" > "$x/stale.out" 2>&1
+has stale "$x/stale.out" '^NOTE: the spec was last changed before the head build was made'
 
 # A cell that did not run is not a clean cell.
 echo '{"base": "'$x'/base.sh", "head": "'$x'/head.sh", "cmd": "sh {bin} {root}", "setup": "exit 7",
@@ -248,6 +295,38 @@ expect_exit race 1 "$r/race.out" $?
 has race "$r/race.out" 'rounds with a failing copy: 3/3'
 has race "$r/race.out" 'could not take \{root\}/held'
 has race "$r/race.out" 'the other party \(actor, in_pause\): [0-9]+ runs, [1-9][0-9]* failed'
+
+# No copy fails and the tree ends as one copy alone leaves it, yet one copy says it kept the file
+# the other removed: the line is flagged.
+cat > "$r/says.sh" <<'EOF'
+if mkdir "$1/held" 2>/dev/null; then
+  sleep 0.3
+  rm -f "$1/data"
+  rmdir "$1/held"
+  echo "wiped"
+else
+  echo "kept $1/data: busy"
+fi
+EOF
+echo '{"head": "'$r'/says.sh", "cmd": "sh {bin} {root}", "setup": "echo x > {root}/data",
+  "work": "'$r'/work_says", "copies": 2, "rounds": 3}' > "$r/says.json"
+"$P" race "$r/says.json" > "$r/says.out" 2>&1
+expect_exit says 1 "$r/says.out" $?
+has says "$r/says.out" 'rounds with a failing copy: 0/3'
+has says "$r/says.out" 'final tree differs from one copy alone: 0/3'
+has says "$r/says.out" 'lines one copy alone never prints'
+has says "$r/says.out" '[0-9]+x `kept \{root\}/data: busy`'
+
+# Copies that print what one copy alone prints are not flagged.
+cat > "$r/quiet.sh" <<'EOF'
+rm -f "$1/data"
+echo "wiped"
+EOF
+echo '{"head": "'$r'/quiet.sh", "cmd": "sh {bin} {root}", "setup": "echo x > {root}/data",
+  "work": "'$r'/work_quiet", "copies": 2, "rounds": 3}' > "$r/quiet.json"
+"$P" race "$r/quiet.json" > "$r/quiet.out" 2>&1
+expect_exit quiet 0 "$r/quiet.out" $?
+lacks quiet "$r/quiet.out" 'never prints'
 
 # A held-open window: the program stops at the pause, the other party acts, the program sees it.
 h="$tmp/h"
@@ -331,6 +410,83 @@ has trace "$t/trace.out" 'accepts `\.a\.lock` .* no test brings that input throu
 has trace "$t/trace.out" '`a\.a` \| `notes\.txt` \| false'
 same_file trace "$t/lib.v" "$before_lib"
 same_file trace "$t/lib_test.v" "$before_test"
+
+# ---------------------------------------------------------------- siblings
+s="$tmp/s"
+mkdir -p "$s"
+# Two functions meet the same condition; only one of them gained the ownership check.
+cat > "$s/sib.v" <<'EOF'
+module main
+
+const gone_code = 2
+
+fn is_ours(path string) bool {
+	return path.starts_with('/mine/')
+}
+
+fn open_or_gone(path string) int {
+	return if path == '' { 2 } else { 1 }
+}
+
+fn wipe_one(path string) bool {
+	if open_or_gone(path) == gone_code {
+		if is_ours(path) {
+			return true
+		}
+		return false
+	}
+	return true
+}
+
+fn wipe_two(path string) bool {
+	if open_or_gone(path) == gone_code {
+		return false
+	}
+	return true
+}
+EOF
+# The base: neither function has the check, and wipe_two does not open at all yet.
+cat > "$s/sib_base.v" <<'EOF'
+module main
+
+const gone_code = 2
+
+fn is_ours(path string) bool {
+	return path.starts_with('/mine/')
+}
+
+fn open_or_gone(path string) int {
+	return if path == '' { 2 } else { 1 }
+}
+
+fn wipe_one(path string) bool {
+	if open_or_gone(path) == gone_code {
+		return false
+	}
+	return true
+}
+
+fn wipe_two(path string) bool {
+	return path != ''
+}
+EOF
+echo '{"source": "'$s'/sib.v", "changed_from": "'$s'/sib_base.v", "markers": ["== gone_code"]}' > "$s/marker.json"
+"$P" siblings "$s/marker.json" > "$s/marker.out" 2>&1
+expect_exit siblings-marker 1 "$s/marker.out" $?
+has siblings-marker "$s/marker.out" 'sites of `== gone_code`: wipe_one:14; wipe_two:24'
+has siblings-marker "$s/marker.out" '`is_ours`: near it in wipe_one:15; NOT in wipe_two$'
+# Without markers the shared call that one of them gained marks the situation.
+echo '{"source": "'$s'/sib.v", "changed_from": "'$s'/sib_base.v"}' > "$s/auto.json"
+"$P" siblings "$s/auto.json" > "$s/auto.out" 2>&1
+expect_exit siblings-auto 1 "$s/auto.out" $?
+has siblings-auto "$s/auto.out" 'sites of `open_or_gone`: wipe_one:14; wipe_two:24'
+has siblings-auto "$s/auto.out" '`is_ours`: near it in wipe_one:15; NOT in wipe_two$'
+# Once the sibling has the check too, nothing is left to answer.
+sed $'s/^\t\treturn false$/\t\treturn is_ours(path)/' "$s/sib.v" > "$s/sib_fixed.v"
+echo '{"source": "'$s'/sib_fixed.v", "changed_from": "'$s'/sib_base.v", "markers": ["== gone_code"]}' > "$s/fixed.json"
+"$P" siblings "$s/fixed.json" > "$s/fixed.out" 2>&1
+expect_exit siblings-fixed 0 "$s/fixed.out" $?
+has siblings-fixed "$s/fixed.out" '^0 rows'
 
 echo "vprobe self-test: $((cases - fails))/$cases checks passed"
 [ "$fails" -eq 0 ]

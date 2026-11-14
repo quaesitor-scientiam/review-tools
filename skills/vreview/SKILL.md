@@ -89,6 +89,9 @@ memory, because memory does not sync.
    - `trace`: one run of the tests over an instrumented copy. It fills Angle J's "tested
      through every caller" rows: which shapes of input reach a changed predicate through
      which caller, and in which tests.
+   - `siblings` (rev 110): no run of the program, two versions of one file. It lists the
+     sites of one situation and which of them lack a call that another site gained. It fills
+     the "sibling sites" rows of Phase 0 step 7.
 
    Paste the probe's flagged rows into the artifact and name the command. Each flagged row
    then gets one of three dispositions, written beside it: a finding, a change the PR
@@ -115,6 +118,24 @@ memory, because memory does not sync.
    "not run", and spent its ten mutants away from the name parser. Hence the quote rule
    above, the place labels and generated name shapes (Angle G12), and the generated
    mutants of named functions (Angle J).
+   **The probe inputs grow with the round (rev 110).** A probe measures only the rows its spec
+   holds, and a spec written for an earlier round holds none for what this round added. Before
+   a probe run counts, add to the spec: a row for every behaviour sentence the round added to
+   the docs, the help text or a decision the user took (the place, kind of object and setting
+   that make the sentence apply); a row for every pair of such sentences that can hold at once;
+   and every path an environment variable or an option names, as a `named` row of its own
+   (Angle G12). Write in the artifact which rows were added this round, or "none" with the
+   reason; `vprobe` prints a note when the spec is older than the head build. The lists that
+   were written by hand are now taken from the diff: the mutation run takes its functions from
+   `changed_from` (Angle J), and the sites of one situation come from `vprobe siblings`
+   (Phase 0 step 7). An option offered to the user is new behaviour too: before asking, give
+   each option its rows (what it follows, trusts or removes that base did not, and who else
+   can create that object), and state them in the question. Missed on vlang/v#31848
+   (adversarial round 7, 2026-11-14, 17 of 17 confirmed: 7 defects, 4 missing tests): the
+   matrix spec was written on 2026-11-13 and not changed while round 6 added three behaviours;
+   one added row, the path `VTOOLS_CACHE_DIR` names, shows two of the defects in under a
+   minute. The option "wipe the folder the link leads to" was recommended to the user without
+   its row for a link another account plants.
 
 ## Plugin paths
 This skill ships in the `review-tools` plugin (git repo, installed at user scope).
@@ -437,6 +458,27 @@ does. Standard and Lite keep the per-angle cap and normal N/A discretion.
    2026-11-08): the clobber check lowercased mnemonics and stripped `lock`, the width check did
    neither, so `MOVL %[x64], %%eax` passed silently.
 
+   **A check added at one site is a row for every site of the same situation: run `vprobe
+   siblings` (rev 110, hard rule 4).** When the diff adds a check, a call or a use of a flag at
+   one place that handles a situation (a path that is no folder, a failed open, two paths
+   compared), every other place that handles the situation needs the same decision. The sites
+   are found by the probe, not recalled: give it `source`, `changed_from` (the file at the last
+   reviewed revision, the merge base on a first review) and `markers`, the raw text of the
+   condition (`os.is_link(`, the error code, the comparison helper). Without markers it takes
+   every local function that several functions call and one of them newly calls. For every
+   local function called near one site that its function did not call at the base, it prints
+   the sites that do not reach it. Paste the rows. Each "NOT in" gets "not needed there,
+   because ..." with the `file:line` read, or it is a finding. The probe compares calls, so two
+   things stay with the reader: a call reached through a helper that does less than the direct
+   call, and a flag one exit path ignores. For each function that receives a flag (`recreate`,
+   `dry_run`), name every exit path and where the flag is honoured on it. Missed on
+   vlang/v#31848 (adversarial round 7, 2026-11-14, 4 findings): round 6 added "a
+   `VTOOLS_CACHE_DIR` link stays" at two of the three places that find a link; two new
+   comparisons skipped the respelling that `roots_below` applies on Windows; the build-folder
+   test compared locations where its twin compared real paths too; and one branch of
+   `wipe_folder_around_tool_roots` dropped `recreate`. The probe's rows for that diff hold the
+   first two.
+
    **Artifact: sibling parity table.** One row per new type/function/branch
    checked against a sibling, six columns:
 
@@ -506,6 +548,8 @@ recall-driven failure mode this skill has repeatedly found unreliable.
 - [ ] Class ledger (hard rule 3, rev 107): <one row per round and defect class with its confirmed count; a class in two consecutive rounds means ask the design question before fixing> (or "first round, no confirmed findings yet")
 - [ ] Shared-place table (Angle G12, rev 107): <place kind x object kind cells, head vs base> (or "the diff acts on no folder other accounts may write")
 - [ ] Probe runs (hard rule 4, rev 107): <`vprobe` matrix / race / mutate: command, exit code, flagged rows, each row's disposition> (or "N/A — the diff has nothing a command can run", or "not run — reason, and the user's answer")
+- [ ] Probe inputs added this round (hard rule 4, rev 110): <per spec: the rows added for this round's new sentences, decisions and pairs of them; every setting's own path as a `named` row; the setting relations and process states run> (or "none — reason")
+- [ ] Sibling sites (Phase 0 step 7, rev 110): <`vprobe siblings` command, markers, each "NOT in" row with its answer; per function that takes a flag, each exit path and where the flag is honoured> (or "N/A — the diff adds no check at a site of a shared situation")
 - [ ] Model ledger (Angle K): <one row per function that models another tool: rounds with confirmed findings, added/removed clauses; two in a row means ask the allow-list question before fixing> (or "no model of another tool in this diff")
 - [ ] Accepted-vocabulary inventory (Angle K): <n entries, from which old-code lists> (or "no new or widened rejection in this diff")
 - [ ] Reference-grammar trace (Angle K, rev 101): <reference function and its full line range, one row per consuming branch with adjacency and nesting probe results, plus the caller's line range and a leftover row per token class (rev 104)> (or "no model of another tool's grammar in this diff")
@@ -1737,6 +1781,16 @@ folder, so the build failed. When two wipes ran at once, one printed that a
 build had moved the folder aside. The only pause in `wipe_item` sat before the
 open, so the removal in the fallback branch was never held open.
 
+**The race report pairs the lines with the tree (rev 110).** `vprobe race` lists
+every line that one copy alone never prints, in the rounds that end with the
+tree one copy alone leaves, and exits 1 for them. Give each such line a
+disposition: it says something was kept, skipped or failed, and the final tree
+does not show it. Missed on vlang/v#31848 (adversarial round 7, 2026-11-14):
+the sentence above already asked for this reading. The last race report held
+`was wiped, except for the tools another process has locked right now: vfake`
+next to "0/20 rounds differ", and nobody paired the two; the other wipe had
+removed those entries.
+
 **Artifact: concurrency matrices.** All three tables above, one set per
 diff. State "none" for a matrix with no applicable rows (e.g. a diff with
 no condition variables gets "none" for Matrix 2) rather than omitting it —
@@ -2466,6 +2520,23 @@ wire-parsing code.
   root wipe repaired another user's lock file in a sticky folder with a `chmod` by name, which
   follows a link the owner swaps in; and a dry run wrote a probe file into `VTOOLS_CACHE_DIR`,
   through a planted link. The matrix had run only the real command.
+  **The path a setting names is a place, and so is the process (rev 110).** Every path an
+  environment variable, an option or a config field names goes into `named` itself, not only
+  the folders inside it: what the code does when a file, a link, or another account's link is
+  at that path (`other_link_to_dir`, `other_link_to_file`; the probe makes them when started
+  as root). Code that follows a link and then changes what it reaches (`os.real_path`, a
+  `readlink`, an open that follows) takes a trust decision: name who can create or replace
+  each link on the way and the check made before following, or it is a finding. Run the matrix
+  once per relation between the settings that the docs or the help name (one path inside
+  another, two settings naming one path, one a link to another, a relative path, a trailing
+  separator, a spelling that differs in case on Windows), and once per process state the diff
+  reads: a working folder that can be entered but not read (`cd {root}/x && ...` in `cmd`), a
+  low descriptor limit (`ulimit -n`), an unset variable. Missed on vlang/v#31848 (adversarial
+  round 7, 2026-11-14, 5 findings): a wipe followed a `VTOOLS_CACHE_DIR` link that another
+  account had planted and emptied the folder it led to; it removed the folder its own link led
+  to; with the link at the `VTMP` path, or leading to `VCACHE`, it removed the link or left the
+  cache folder missing; and started from a folder it could not read, it failed on every link.
+  None of these was a row: the matrix had one setting layout and one working folder.
 
 ### Angle H — Absence search (what MUST exist but doesn't)
 
@@ -2590,6 +2661,18 @@ Ask, for every file/function touched or newly introduced:
   reported a lock file as an unknown object of nobody's, and a root wipe then deleted the lock
   file a running build held. An earlier pass had noted that `item()` degrades, and never asked
   what its callers do with that.
+- **A failed look has causes: list them per kind of object (rev 110).** Once "could not tell"
+  keeps the object and fails the run, every cause of "could not tell" is a failure of the whole
+  run. For each call in the look, list the errors it can return for each kind of object (a
+  file, a folder, a link, one the user cannot read) and each process state that reaches the
+  call, a fallback branch included. Say for each whether the object really cannot be looked
+  at, or only this way of looking failed. The second kind needs another way to look, not a
+  failure. Run one row per cause (Angle G12's process states); a test of one cause does not
+  cover the branch. Missed on vlang/v#31848 (adversarial round 7, 2026-11-14, 2 findings): the
+  rev 109 fix made an unknown name fail the wipe and tested it with `EMFILE`. The same
+  fallback runs whenever the working folder cannot be opened, and opens the name with
+  `O_NOFOLLOW`, which fails with `ELOOP` on every link: a wipe started from such a folder
+  failed where base succeeded.
 - **Every best-effort failure in a safety mechanism is a disclosed limit or a finding (rev
   102).** For each `or { return }`, timeout or skipped write in code whose job is to protect
   something (a registration, a lock, a marker), state what it leaves unprotected when it fires,
@@ -3152,6 +3235,27 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   probe exits 1 for it, and it is neither a kill nor a survivor. On vlang/v#31848 two blind
   runs took a test of what the changed predicate still refuses for coverage of what it
   newly accepts; the run that ran mutants reported the gap.
+- **The mutants come from the diff: `changed_from`, and three more generated kinds (rev 110).**
+  Give `vprobe mutate` `changed_from`, the file as the last mutation run saw it (the merge base
+  the first time). Every function whose text differs is added to `functions`, predicate or
+  not, so a function changed after its last run cannot be left out. For those functions the
+  probe also generates: both constant answers for a lone comparison that is stored or returned
+  (`stays := x != .gone`, `return a !in b`); the argument as it came for every call of a local
+  function that respells a string (`tool_cache_location(candidate)` becomes `candidate`); and
+  the guard mutant when a comment stands between the `if` and its `return`. Run the whole
+  generated list, not a selection from it. Missed on vlang/v#31848 (adversarial round 7,
+  2026-11-14, 3 findings): the last runs named three functions by hand; `wipe_item` and
+  `new_tool_cache_wipe_run`, changed after their own run, were not named again, and no
+  generated kind covered a stored comparison or a dropped respelling. The generated list for
+  that diff (124 mutants over 18 functions) holds all three mutants the agents found alive.
+- **A test that stages a window asserts what the program says, not only the tree (rev 110).**
+  A test that makes another party act between a look and an act (a hook, a pause, a second
+  process) checks three things: what is on disk at the end, every summary line that names the
+  object, and the exit status. A stored answer such as `stays := ...` feeds the summary alone,
+  so a test of the tree cannot see it flipped. Missed on vlang/v#31848 (adversarial round 7): a
+  build put a folder where the wipe was about to remove a link; the test checked the entry and
+  the lock file, and `stays := false`, which makes the wipe report the kept folder as wiped,
+  passed.
 - **What the output says about an object holds for every line that names it (rev 103).** When
   a fix stops one message from contradicting what the run does ("keeping" a file that is then
   deleted), find every function that writes a line about the same object, in the real run and
@@ -3177,6 +3281,11 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   lists it, because holding is not a condition. Missed on vlang/v#31848 (adversarial round 6):
   a version of `probe()` that let every build lock go at once passed all the tests, though the
   wipe promises that a build starting meanwhile waits.
+  **One mutant and one test per path that reaches the resource (rev 110).** List every way the
+  code comes to hold it (a lock file that exists, one the code has just made, one it repaired)
+  and observe the hold from another process on each. Missed on vlang/v#31848 (adversarial
+  round 7): the test wrote the lock file before the wipe, so a `claim()` that makes the file
+  and never locks it passed all 116 tests.
 - **Every input advance is a mutant (rev 104).** In code that scans or parses, delete each
   statement the diff adds that moves the input on (`tok = scan.scan()`, `p.next()`, a
   `lookahead.scan()` whose result is kept), one mutant each. A dropped advance is the commonest
@@ -3678,6 +3787,12 @@ Shared-place table (Angle G12, rev 107):
 
 Probe runs (hard rule 4, rev 107):
 <probe (matrix / race / mutate) — command — exit code — flagged rows as printed — per row: finding / change the PR states / disclosed limit; rows not run and why> (or "N/A — the diff has nothing a command can run")
+
+Probe inputs added this round (hard rule 4, rev 110):
+<spec — rows added for this round's new sentences, decisions and pairs of them — each setting's own path as a `named` row — setting relations and process states run> (or "none — reason")
+
+Sibling sites (Phase 0 step 7, rev 110):
+<`vprobe siblings` command and markers — each "NOT in" row: not needed there (why, file:line) / finding; per function that takes a flag: exit path — where the flag is honoured> (or "N/A — the diff adds no check at a site of a shared situation")
 
 Model ledger (Angle K):
 <function — rounds with confirmed findings — clauses added/removed — allow-list question asked?> (or "no model of another tool in this diff")

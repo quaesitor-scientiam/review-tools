@@ -8,13 +8,15 @@
 //   v -w run probes/vprobe.v race   <spec.json>
 //   v -w run probes/vprobe.v mutate <spec.json> [--list]
 //   v -w run probes/vprobe.v trace  <spec.json>
+//   v -w run probes/vprobe.v siblings <spec.json>
 //
 // matrix: runs `cmd` once per (place, kind of object, account) with the base build and with the
 //   head build, each time over a fresh copy of the same tree, and prints the cells where the two
 //   differ: the object kept by one and removed by the other, another exit code, other paths kept or
 //   removed because the object was there, or a change outside the tree's own folders.
 //   Kinds: own_file, own_dir, own_empty_dir, link_to_file, link_to_dir; started as root on Linux
-//   or WSL (`wsl -u root`) also other_file, other_dir (uid 65534), root_file, root_dir.
+//   or WSL (`wsl -u root`) also other_file, other_dir, other_link_to_file, other_link_to_dir
+//   (uid 65534; the link is that account's, what it points to is not), root_file, root_dir.
 //   Accounts: user; started as root also root, with the same environment (HOME kept), which is
 //   what `sudo` does where HOME is preserved.
 //   `places` are folders an object is put inside; `named` are paths an object is created at (a
@@ -22,7 +24,9 @@
 // race: runs `copies` copies of `cmd` at once over a fresh tree, `rounds` times per build, with an
 //   optional `actor` command looping beside them. Prints the rounds where a copy failed, the
 //   rounds whose final tree differs from the tree one copy alone leaves, the actor's own failures
-//   and what the copies printed. `base` may be left out.
+//   and what the copies printed. `base` may be left out. A line that one copy alone never
+//   prints, in a round that ends with the tree one copy alone leaves, is listed and flagged: it
+//   says something was kept, skipped or failed that the final tree does not show.
 //   A window timing cannot hit is held open: `edits` put `{pause}` at a line of a scratch copy of
 //   the source, `build` builds the program from it (the source is restored right after), and
 //   `in_pause` is run once per round while the program waits at that line. `{pause}` is V code.
@@ -38,6 +42,13 @@
 //   another never sees is a missing test for that caller. With `test_file`, each test function
 //   announces itself, so the tests are named. Only tests that run the code in their own process
 //   are seen. The first argument of each wrapped call is evaluated twice (once to print it).
+// siblings: compares the sites of one situation in `source`. A site is a line that holds one of
+//   `markers` (the raw condition, such as `os.is_link(`); without markers, a call of any local
+//   function that several functions call, one of them newly since `changed_from` (the same file
+//   at the last reviewed revision). For every local function called near one site (`window`
+//   lines either side, default 12) that its function did not call at the base, it prints the
+//   sibling sites that do not reach it. A check added at one site and not at its twins shows as
+//   a row. `functions` limits the sites to those functions.
 //
 // Spec (JSON; paths in `places` and `named` are relative to the tree's root):
 //   base, head   the two executables (matrix, race)
@@ -60,9 +71,15 @@
 //                is `find` with `{pause}` in front; `head` names the program `build` produces
 //   test, build, mutants [{file, line, find, replace, note}], fail_regex, control_may_fail   mutate
 //   source, functions   mutate: also generate the mutants of these functions of `source`, one per
-//                clause of each `&&`/`||` condition and one per early-return guard. Name every
-//                new or changed predicate and name parser here; `--list` prints them unrun.
+//                clause of each `&&`/`||` condition, one per early-return guard, two per lone
+//                comparison that is stored or returned (always true, always false), and one per
+//                call of a local `fn name(x string) string` (the argument as it came). `--list`
+//                prints them unrun.
+//   changed_from mutate: the same file at the revision the last mutation run covered (the merge
+//                base for the first run). Every function whose text differs is added to
+//                `functions`, so a function changed after its last run cannot be left out.
 //   source, functions, test, test_file      trace
+//   source, changed_from, markers, functions, window   siblings
 //
 // Exit: 0 nothing flagged; 1 something flagged (rows to read, not automatically defects) or
 // something could not be run (a skipped cell, an untested mutant, a pause never reached);
@@ -75,7 +92,8 @@ import regex
 import time
 
 const user_kinds = ['own_file', 'own_dir', 'own_empty_dir', 'link_to_file', 'link_to_dir']
-const root_kinds = ['other_file', 'other_dir', 'root_file', 'root_dir']
+const root_kinds = ['other_file', 'other_dir', 'other_link_to_file', 'other_link_to_dir', 'root_file',
+	'root_dir']
 const outside = 'zz_outside'
 const other_uid = 65534
 
@@ -124,6 +142,9 @@ mut:
 	test_file        string
 	edits            []Mutant
 	in_pause         string
+	changed_from     string
+	markers          []string
+	window           int
 }
 
 struct Ctx {
@@ -498,13 +519,18 @@ fn (c Ctx) place_object(object string, kind string) ! {
 		'own_empty_dir' {
 			os.mkdir_all(object)!
 		}
-		'link_to_file', 'link_to_dir' {
-			target := os.join_path(c.root, outside, if kind == 'link_to_dir' {
+		'link_to_file', 'link_to_dir', 'other_link_to_file', 'other_link_to_dir' {
+			target := os.join_path(c.root, outside, if kind.ends_with('link_to_dir') {
 				'dir'
 			} else {
 				'victim.txt'
 			})
-			if c.root_mode {
+			if kind.starts_with('other_') {
+				// Made by root and handed over: the link is the other account's, what it points to
+				// is not. The owner is checked below, since `chown -h` is not reliable everywhere.
+				os.symlink(target, object)!
+				os.execute('chown -h ${other_uid}:${other_uid} ${quoted(object)}')
+			} else if c.root_mode {
 				// Made as the user: `chown -h` leaves the owner of a link to a folder unchanged on
 				// some systems (uutils coreutils) and still exits 0.
 				res := os.execute('setpriv --reuid=${c.uid} --regid=${c.gid} --init-groups ln -s ${quoted(target)} ${quoted(object)}')
@@ -529,7 +555,7 @@ fn (c Ctx) place_object(object string, kind string) ! {
 	} else {
 		c.uid
 	}
-	if !kind.starts_with('link_') {
+	if !kind.contains('link_') {
 		group := if wanted == c.uid { c.gid } else { wanted }
 		os.execute('chown -R ${wanted}:${group} ${quoted(object)}')
 	}
@@ -1035,6 +1061,13 @@ fn cmd_race(spec Spec) int {
 		single := os.execute(line)
 		mut alone := snapshot(c.root).keys()
 		alone.sort()
+		mut alone_lines := map[string]bool{}
+		for text in single.output.split_into_lines() {
+			if text.trim_space() != '' {
+				alone_lines[digits_folded(text.replace(c.root, '{root}'))] = true
+			}
+		}
+		mut odd_lines := map[string]int{}
 		mut failing := 0
 		mut differing := 0
 		mut errors := map[string]int{}
@@ -1077,10 +1110,16 @@ fn cmd_race(spec Spec) int {
 				}
 			}
 			mut failed := false
+			mut round_lines := []string{}
 			for res in results {
 				if res.exit_code != 0 {
 					failed = true
 					errors[digits_folded(first_line(res.output).replace(c.root, '{root}'))]++
+				}
+				for text in res.output.split_into_lines() {
+					if text.trim_space() != '' {
+						round_lines << digits_folded(text.replace(c.root, '{root}'))
+					}
 				}
 				if round == 0 {
 					for text in res.output.split_into_lines() {
@@ -1102,6 +1141,14 @@ fn cmd_race(spec Spec) int {
 				if example == '' {
 					example = 'missing: ${sample(missing, 4)}; extra: ${sample(extra, 4)}'
 				}
+			} else {
+				// The tree ended as one copy alone leaves it, so a line that one copy alone never
+				// prints (something kept, skipped, failed) describes a tree that is not there.
+				for text in round_lines {
+					if !alone_lines[text] {
+						odd_lines[text]++
+					}
+				}
 			}
 		}
 		println('')
@@ -1113,6 +1160,13 @@ fn cmd_race(spec Spec) int {
 		println('- rounds whose final tree differs from one copy alone: ${differing}/${rounds}')
 		if example != '' {
 			println('  - first: ${example}')
+		}
+		if odd_lines.len > 0 {
+			println('- lines one copy alone never prints, in rounds that end with the tree one copy alone leaves:')
+			for text, count in odd_lines {
+				println('  - ${count}x `${text}`')
+			}
+			println('  - read each against the final tree: what it says was kept, skipped or failed is not what the tree shows')
 		}
 		if spec.actor != '' || spec.in_pause != '' {
 			println('- the other party (actor, in_pause): ${actor_runs} runs, ${actor_failed} failed')
@@ -1135,7 +1189,7 @@ fn cmd_race(spec Spec) int {
 				println('  - `${text}`')
 			}
 		}
-		if build == 'head' && (failing > 0 || differing > 0 || actor_failed > 0) {
+		if build == 'head' && (failing > 0 || differing > 0 || actor_failed > 0 || odd_lines.len > 0) {
 			flagged = true
 		}
 	}
@@ -1238,14 +1292,126 @@ fn clause_drops(line string) []string {
 	return drops
 }
 
+// top_level_comparison reports whether `expr` is one value that holds a comparison outside every
+// bracket and string. Several values (`a == b, c`) are not one answer to replace.
+fn top_level_comparison(expr string) bool {
+	mut depth := 0
+	mut quote := u8(0)
+	mut found := false
+	for i := 0; i < expr.len; i++ {
+		ch := expr[i]
+		if quote != 0 {
+			if ch == quote && expr[i - 1] != `\\` {
+				quote = 0
+			}
+			continue
+		}
+		if ch in [`'`, `"`, `\``] {
+			quote = ch
+		} else if ch in [`(`, `[`] {
+			depth++
+		} else if ch in [`)`, `]`] {
+			depth--
+		} else if depth == 0 && ch == `,` {
+			return false
+		} else if depth == 0 && ch == ` ` {
+			for op in [' == ', ' != ', ' !in ', ' in ', ' < ', ' > ', ' <= ', ' >= ', ' is ', ' !is '] {
+				if i + op.len <= expr.len && expr[i..i + op.len] == op {
+					found = true
+				}
+			}
+		}
+	}
+	return found
+}
+
+// lone_comparison returns the expression of `x := a == b` or `return a != b`: one comparison that
+// is stored or returned as it is. Conditions joined with `&&`/`||` get clause mutants instead.
+fn lone_comparison(line string) ?string {
+	code := line.trim_space()
+	if code.starts_with('//') || code.contains('{') {
+		return none
+	}
+	mut expr := ''
+	if code.starts_with('return ') {
+		expr = code['return '.len..]
+	} else if at := code.index(' := ') {
+		left := code[..at]
+		if left.contains('(') || left.contains(',') {
+			return none
+		}
+		expr = code[at + 4..]
+	} else {
+		return none
+	}
+	if expr.contains(' && ') || expr.contains(' || ') || !top_level_comparison(expr) {
+		return none
+	}
+	return expr
+}
+
+// string_wrappers lists the plain functions of a V file that take one string and return a string:
+// the ones that put a path or a name into one spelling before it is stored or compared.
+fn string_wrappers(lines []string) []string {
+	mut out := []string{}
+	for raw in lines {
+		line := raw.trim_right('\r')
+		if !line.starts_with('fn ') && !line.starts_with('pub fn ') {
+			continue
+		}
+		rest := line.all_after('fn ')
+		if rest.starts_with('(') {
+			continue
+		}
+		name := fn_name(line)
+		params := rest.all_after(name + '(').all_before(')')
+		ret := rest.all_after(')').trim_space().trim_right('{').trim_space()
+		if ret == 'string' && !params.contains(',') && params.trim_space().ends_with(' string') {
+			out << name
+		}
+	}
+	return out
+}
+
+// fn_bodies returns the text of every top-level function of a V file, by name. Methods of one name
+// on several types share an entry.
+fn fn_bodies(path string) map[string]string {
+	text := os.read_file(path) or {
+		fail('cannot read ${path}: ${err}')
+		return {}
+	}
+	lines := text.replace('\r', '').split('\n')
+	mut out := map[string]string{}
+	for f in parse_fns(lines) {
+		out[f.name] += lines[f.start..f.end + 1].join('\n') + '\n'
+	}
+	return out
+}
+
+// changed_functions names the functions of `path` whose text differs from `base_path`, the same
+// file at an earlier revision, or that are not in it.
+fn changed_functions(base_path string, path string) []string {
+	old := fn_bodies(base_path)
+	mut out := []string{}
+	for name, body in fn_bodies(path) {
+		if name !in old || old[name] != body {
+			out << name
+		}
+	}
+	return out
+}
+
 // generate_mutants lists, for the named functions of `path`, one mutant per clause of every
-// condition and one per guard that returns early, so a predicate's checks are covered in full.
+// condition and one per guard that returns early, so a predicate's checks are covered in full;
+// both constant answers for every lone comparison that is stored or returned; and, for every call
+// of a local function that respells a string, the argument as it came.
 fn generate_mutants(path string, names []string) []Mutant {
 	text := os.read_file(path) or {
 		fail('cannot read ${path}: ${err}')
 		return []
 	}
 	lines := text.split('\n')
+	wrappers := string_wrappers(lines)
 	mut out := []Mutant{}
 	mut current := ''
 	mut seen := map[string]bool{}
@@ -1276,7 +1442,12 @@ fn generate_mutants(path string, names []string) []Mutant {
 		code := line.trim_space()
 		if drops.len == 0 && code.starts_with('if ') && code.ends_with(' {') && !code.contains(':=')
 			&& i + 1 < lines.len {
-			next := lines[i + 1].trim_space()
+			// A comment may stand between the guard and what it does.
+			mut k := i + 1
+			for k < lines.len - 1 && lines[k].trim_space().starts_with('//') {
+				k++
+			}
+			next := lines[k].trim_space()
 			if next.starts_with('return') || next in ['continue', 'break'] {
 				out << Mutant{
 					file:    path
@@ -1284,6 +1455,36 @@ fn generate_mutants(path string, names []string) []Mutant {
 					find:    code
 					replace: 'if false {'
 					note:    '${current}: guard never fires'
+				}
+			}
+		}
+		if code.starts_with('//') {
+			continue
+		}
+		if drops.len == 0 {
+			if expr := lone_comparison(line) {
+				for answer in ['true', 'false'] {
+					out << Mutant{
+						file:    path
+						line:    i + 1
+						find:    expr
+						replace: answer
+						note:    '${current}: the answer is always ${answer}'
+					}
+				}
+			}
+		}
+		for wrapper in wrappers {
+			if wrapper == current {
+				continue
+			}
+			for call in find_calls(line, wrapper) {
+				out << Mutant{
+					file:    path
+					line:    i + 1
+					find:    line[call.start..call.end]
+					replace: call.arg1
+					note:    '${current}: ${wrapper}() dropped'
 				}
 			}
 		}
@@ -1328,6 +1529,24 @@ fn control_pass(test string, pattern string) (int, []string, string, string) {
 
 fn cmd_mutate(given Spec, list_only bool) int {
 	mut spec := given
+	if spec.changed_from != '' {
+		if spec.source == '' {
+			fail('"changed_from" needs "source", the file it is an earlier revision of')
+		}
+		mut added := []string{}
+		for name in changed_functions(spec.changed_from, spec.source) {
+			if name !in spec.functions {
+				spec.functions << name
+				added << name
+			}
+		}
+		println('Functions changed since `changed_from`, added to `functions`: ${if added.len > 0 {
+			added.join(', ')
+		} else {
+			'none'
+		}}')
+		println('')
+	}
 	if spec.functions.len > 0 {
 		if spec.source == '' {
 			fail('"functions" needs "source", the file they are in')
@@ -2012,19 +2231,206 @@ fn cmd_trace(spec Spec) int {
 	return if gaps.len > 0 || unreached.len > 0 { 1 } else { 0 }
 }
 
+// calls_name reports whether `text` calls the function or method `name`.
+fn calls_name(text string, name string) bool {
+	needle := name + '('
+	mut from := 0
+	for {
+		at := text.index_after(needle, from) or { return false }
+		if at == 0 || !is_ident_char(text[at - 1]) {
+			return true
+		}
+		from = at + 1
+	}
+	return false
+}
+
+// cmd_siblings compares the sites of one situation. A site is a line that holds a marker: a text
+// from the spec, or without `markers` a call of any local function that several functions call,
+// one of them newly since `changed_from`. For every local function that one site's function calls
+// near the site and did not call at the base, it prints the sites that lack it, near them,
+// elsewhere in their function, and in the functions they call near the site. Each is a row to
+// answer: the check is not needed there (say why), or it is missing.
+fn cmd_siblings(spec Spec) int {
+	if spec.source == '' || spec.changed_from == '' {
+		fail('siblings needs source and changed_from')
+	}
+	text := os.read_file(spec.source) or {
+		fail('cannot read ${spec.source}: ${err}')
+		return 2
+	}
+	lines := text.replace('\r', '').split('\n')
+	fns := parse_fns(lines)
+	now := fn_bodies(spec.source)
+	old := fn_bodies(spec.changed_from)
+	window := if spec.window > 0 { spec.window } else { 12 }
+	for name in spec.functions {
+		if name !in now {
+			fail('no function ${name} in ${spec.source}')
+		}
+	}
+	// What each function calls, and which of those calls it did not make at the base.
+	mut newly := map[string][]string{}
+	mut callers := map[string][]string{}
+	for f in fns {
+		body := lines[f.start + 1..f.end].filter(!it.trim_space().starts_with('//')).join('\n')
+		before := (old[f.name] or { '' }).all_after('\n')
+		for name, _ in now {
+			if name == f.name || !calls_name(body, name) {
+				continue
+			}
+			if f.name !in callers[name] {
+				callers[name] << f.name
+			}
+			if !calls_name(before, name) && name !in newly[f.name] {
+				newly[f.name] << name
+			}
+		}
+	}
+	// Without markers, every local function that several functions call, one of them newly, marks a
+	// situation: its call sites are the siblings.
+	mut markers := spec.markers.clone()
+	auto := markers.len == 0
+	if auto {
+		for name, who in callers {
+			if who.len >= 2 && who.any(name in newly[it]) {
+				markers << name
+			}
+		}
+		markers.sort()
+	}
+	println('# siblings: what the sites of one situation do near it, and which of them lack a call the others gained')
+	println('A site is a line that holds the marker; "near" is ${window} lines either side, inside its function.')
+	println('')
+	mut absent := 0
+	mut singles := []string{}
+	for marker in markers {
+		mut order := []string{}
+		mut hits := map[string][]int{}
+		mut near := map[string]map[string]int{}
+		for f in fns {
+			if spec.functions.len > 0 && f.name !in spec.functions {
+				continue
+			}
+			for i in f.start + 1 .. f.end {
+				if lines[i].trim_space().starts_with('//') {
+					continue
+				}
+				found := if auto { calls_name(lines[i], marker) } else { lines[i].contains(marker) }
+				if !found {
+					continue
+				}
+				if f.name !in order {
+					order << f.name
+				}
+				hits[f.name] << i + 1
+				lo := if i - window > f.start + 1 { i - window } else { f.start + 1 }
+				hi := if i + window + 1 < f.end { i + window + 1 } else { f.end }
+				for k in lo .. hi {
+					if lines[k].trim_space().starts_with('//') {
+						continue
+					}
+					for name, _ in now {
+						if name == f.name || (auto && name == marker) || !calls_name(lines[k], name) {
+							continue
+						}
+						if name !in near[f.name] {
+							near[f.name][name] = k + 1
+						}
+					}
+				}
+			}
+		}
+		if order.len < 2 {
+			singles << marker
+			continue
+		}
+		mut columns := []string{}
+		for fname in order {
+			for name, _ in near[fname] {
+				if name in newly[fname] && name !in columns {
+					columns << name
+				}
+			}
+		}
+		columns.sort()
+		mut rows := []string{}
+		for column in columns {
+			mut has := []string{}
+			mut lacks := []string{}
+			for fname in order {
+				if fname == column {
+					continue
+				}
+				at := near[fname][column]
+				if at > 0 {
+					has << '${fname}:${at}'
+					continue
+				}
+				// Elsewhere in the function, or in a function called near the site, counts as reached.
+				mut reached := calls_name((now[fname] or { '' }).all_after('\n'), column)
+				for callee, _ in near[fname] {
+					if reached {
+						break
+					}
+					reached = calls_name((now[callee] or { '' }).all_after('\n'), column)
+				}
+				if !reached {
+					lacks << fname
+				}
+			}
+			if lacks.len > 0 {
+				absent += lacks.len
+				rows << '- `${column}`: near it in ${has.join(', ')}; NOT in ${lacks.join(', ')}'
+			}
+		}
+		if rows.len == 0 {
+			continue
+		}
+		mut sites := []string{}
+		for fname in order {
+			sites << '${fname}:${hits[fname].map(it.str()).join(',')}'
+		}
+		println('## sites of `${marker}`: ${sites.join('; ')}')
+		for row in rows {
+			println(row)
+		}
+		println('')
+	}
+	if singles.len > 0 {
+		println('One site only, nothing to compare: ${singles.map('`${it}`').join(', ')}')
+	}
+	println('${absent} rows: a call one site gained that a sibling site lacks.')
+	println('Each needs an answer: not needed at that site (why), or missing.')
+	return if absent > 0 { 1 } else { 0 }
+}
+
+// stale_note says so when the spec is older than the program it tests: what the program gained
+// since the spec was written has no row yet.
+fn stale_note(spec_path string, bin string) {
+	if bin != '' && os.exists(bin) && os.file_last_mod_unix(spec_path) < os.file_last_mod_unix(bin) {
+		println('NOTE: the spec was last changed before the head build was made. Name the rows added for what the head gained since, or say why it needs none.')
+		println('')
+	}
+}
+
 fn main() {
 	args := os.args[1..]
 	paths := args.filter(!it.starts_with('--'))
-	if paths.len != 2 || paths[0] !in ['matrix', 'race', 'mutate', 'trace'] {
-		eprintln('usage: v run vprobe.v matrix|race|mutate|trace <spec.json> [--all] [--list]')
+	if paths.len != 2 || paths[0] !in ['matrix', 'race', 'mutate', 'trace', 'siblings'] {
+		eprintln('usage: v run vprobe.v matrix|race|mutate|trace|siblings <spec.json> [--all] [--list]')
 		eprintln('The header of vprobe.v describes the spec.')
 		exit(2)
 	}
 	spec := load_spec(paths[1])
+	if paths[0] in ['matrix', 'race'] && spec.edits.len == 0 {
+		stale_note(paths[1], spec.head)
+	}
 	code := match paths[0] {
 		'matrix' { cmd_matrix(spec, '--all' in args) }
 		'race' { cmd_race(spec) }
 		'trace' { cmd_trace(spec) }
+		'siblings' { cmd_siblings(spec) }
 		else { cmd_mutate(spec, '--list' in args) }
 	}
 	exit(code)

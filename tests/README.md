@@ -65,9 +65,12 @@ known_good that is merely "unrelated code" proves nothing about the fix path.
 
 ## The probe self-test
 
-`tests/vprobe/selftest.sh [path/to/v]` builds `probes/vprobe.v` and runs each of its four
+`tests/vprobe/selftest.sh [path/to/v]` builds `probes/vprobe.v` and runs each of its five
 commands on inputs whose right answer is known: a mutant a helper kills, a flaky test, a test that
-fails whenever its source file is edited, a hang, a crash, a held-open window, a per-caller gap.
+fails whenever its source file is edited, a hang, a crash, the mutants generated for the functions
+that changed since a base file, a held-open window, a line one copy prints about a tree that is
+not there, a per-caller gap, a check one sibling site has and the other lacks. The kinds that need
+root (another account's file, folder or link) are not run by it.
 Every case states the line the probe must print and its exit code, so a probe that gives the wrong
 verdict, or ends "nothing flagged" for something it did not run, fails. It needs a POSIX shell
 (Linux, WSL or macOS). It is separate from `run_fixtures.sh`, which covers the detectors only.
