@@ -29,8 +29,8 @@ Skills are invoked by their plugin-qualified names:
 | --- | --- |
 | `/vreview` | `/review-tools:vreview` |
 | `/phase-r` | `/review-tools:phase-r` |
-| `/codex-respond` | `/review-tools:codex-respond` |
-| `/luna-respond` | `/review-tools:luna-respond` |
+| `/codex-respond` | `/review-tools:review-respond` (renamed 2026-11-14) |
+| `/luna-respond` | removed 2026-11-14 (never connected) |
 | `/adversarial-review` | `/review-tools:adversarial-review` |
 
 ## Updating

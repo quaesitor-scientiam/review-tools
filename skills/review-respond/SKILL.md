@@ -1,28 +1,49 @@
 ---
-name: codex-respond
+name: review-respond
 description: >
-  End-to-end handler for a Codex (or human) review round on a vlang/v PR:
-  fetch the review's inline comments, triage each claim against current code,
-  run /phase-r for every confirmed bug, fix, run /vreview, commit, push to the
-  fork, and reply to every thread. Encodes the loop run weekly on the net.http
-  PRs so it is not re-derived each session.
-  Usage: /codex-respond <PR#> [review-id]
+  End-to-end handler for one round of review on a PR, from any reviewer: a
+  maintainer, another person, or a bot such as Codex. Fetch the review's
+  findings (review body, inline comments, or a plain PR comment), triage each
+  claim against current code, run /phase-r for every confirmed bug, fix, run
+  /vreview, commit, push to the fork, and reply where each finding was posted.
+  Encodes the loop so it is not re-derived each session. Not for findings from
+  /adversarial-review, which has its own fix loop.
+  Usage: /review-respond <PR#> [review-id | comment-id | URL] [owner/repo]
 disable-model-invocation: false
 ---
 
+Renamed from `/codex-respond` on 2026-11-14: the loop is the same whoever the
+reviewer is, and most rounds now come from maintainers, not Codex.
+
 ## Input
-$ARGUMENTS — PR number; optionally a review id (the number after
-`#pullrequestreview-` in the GitHub URL) to scope to one round.
+$ARGUMENTS — PR number; optionally the one review or comment to answer (a
+review id, the number after `#pullrequestreview-`; a comment id, the number
+after `#issuecomment-` or `#discussion_r`; or the full GitHub URL); optionally
+the repository as `owner/repo`. Without a repository, take it from the URL, else
+from `gh pr view <N> --json url` in the current checkout (vlang/v for the main
+checkout, the graphify repository for graphify). Below, `<repo>` is that value.
+Without a review or comment, answer every finding on the PR that has no reply
+from `quaesitor-scientiam` yet.
 
 ## Phase 1 — Fetch
 
-- Review body: `gh api repos/vlang/v/pulls/<N>/reviews` (match `id` when a
-  review-id was given; Codex is `chatgpt-codex-connector[bot]`).
-- Inline comments: `gh api repos/vlang/v/pulls/<N>/comments --jq '.[] |
-  select(.pull_request_review_id==<ID>) | {id, path, line, body}'`.
-- Skip threads already answered: a comment whose `in_reply_to_id` chain ends in
-  a reply from `quaesitor-scientiam` is done.
-- P-badges (P1/P2/P3) rank severity; handle all, order by badge.
+Reviewers post findings in three places; check all three, not just the one a
+bot uses:
+- Review bodies: `gh api repos/<repo>/pulls/<N>/reviews` (match `id` when a
+  review id was given). Codex is `chatgpt-codex-connector[bot]`.
+- Inline comments: `gh api repos/<repo>/pulls/<N>/comments --jq '.[] |
+  {id, pull_request_review_id, in_reply_to_id, user: .user.login, path, line, body}'`
+  (filter on `pull_request_review_id` when a review id was given).
+- Plain PR comments, where maintainers often post findings (vlang/v#31848's
+  were issue comments): `gh api repos/<repo>/issues/<N>/comments --jq '.[] |
+  {id, user: .user.login, created_at, body}'`.
+- Skip findings already answered: an inline comment whose `in_reply_to_id`
+  chain ends in a reply from `quaesitor-scientiam`, or a plain comment followed
+  by a reply from `quaesitor-scientiam` that quotes or links it.
+- One comment may hold several findings (a maintainer's numbered list, `[P2]`
+  items); split it and give each its own row from here on.
+- Severity badges (P1/P2/P3, or `[P2]` in text) rank them; handle all, ordered
+  by badge.
 
 ## Phase 2 — Triage every claim (before any code change)
 
@@ -136,9 +157,9 @@ by finding 4 you've mentally filed findings 1-3 as "already handled").
   specific pattern (a shared-cap check referencing more containers than the
   action touches): `v run "${CLAUDE_PLUGIN_ROOT}"/detectors/detect_pool_cap_scope_symmetry.v <file>`.
 - **Test-first for the invariant the fix establishes, not just the reported
-  symptom.** Phase R already requires reproducing Codex's SPECIFIC complaint
-  before fixing it. Separately: if the fix introduces a NEW invariant that
-  isn't just "undo the specific bad input Codex found" (e.g. "a shared cap
+  symptom.** Phase R already requires reproducing the reviewer's SPECIFIC
+  complaint before fixing it. Separately: if the fix introduces a NEW invariant
+  that isn't just "undo the specific bad input the reviewer found" (e.g. "a shared cap
   must be evictable from either pool," not merely "this one call site now
   evicts correctly"), write a test for the INVARIANT itself, confirm it fails
   with the invariant only partially applied (e.g. fixed for one pool but not
@@ -146,42 +167,54 @@ by finding 4 you've mentally filed findings 1-3 as "already handled").
   caught `evict_idle_h2_if_over_cap` being complete for h2 but not h1 — the
   ORIGINAL fix's own test only exercised the specific reported scenario, not
   the general invariant it was supposed to establish.
-- `./vnew fmt -w` every touched `.v` file.
-- `bash .claude/scripts/vtest-safe.sh vlib/net/http/<suite>_test.v` — all green.
+- `./v fmt -w` every touched `.v` file.
+- Run the tests nearest the change, timeout-wrapped so a hang ends
+  (`bash .claude/scripts/vtest-safe.sh <suite>_test.v` where the checkout has
+  it) — all green.
 - h2 server changes: rerun the h2spec gate if stream/frame semantics moved
   (`vlib/net/http/h2spec/run_h2spec.sh`, needs `H2SPEC_BIN`).
 
 ## Phase 5 — Review gate
 
-Run the full `/vreview` (which runs the detectors via
-`run_detectors.sh` and writes the `.git/.last_code_review` fingerprint).
-The PreToolUse hook hard-blocks commit/push without it.
+Run the full `/vreview` (which runs the detectors through
+`detectors/run_detectors.v` and writes the `.last_code_review` fingerprint in
+the checkout's git directory). The commit gate blocks commit/push without it.
 
 ## Phase 6 — Commit + push
 
-- Conventional message, e.g. `fix(h2): <what>; <what>` with RFC § references
-  and `Both from Codex, vlang/v#<N> pullrequestreview-<ID>.` in the body.
-- **Push to `origin` (fork `quaesitor-scientiam/v`) — pushing to vlang/v is
-  always 403** ([[feedback_vlang_fork_required]]). Non-fast-forward after a
-  remote rebase: fetch, verify content-identical, `reset --hard` +
-  `cherry-pick` + `--force-with-lease`.
+- Conventional message, e.g. `fix(h2): <what>; <what>`, with spec references
+  where they apply and the source in the body: `From <reviewer>'s review,
+  <repo>#<N> pullrequestreview-<ID>.` (or `comment <ID>`). Write "From", never
+  "fixes" or "closes" before the reference: GitHub would close the PR.
+- **Push to your fork, the remote whose URL is `quaesitor-scientiam/...`
+  (named `fork` in the vlang checkouts), never to the upstream repository**
+  ([[feedback_vlang_fork_required]]); check `git remote -v` first.
+  Non-fast-forward after a remote rebase: fetch, verify content-identical,
+  `reset --hard` + `cherry-pick` + `--force-with-lease`.
 
-## Phase 7 — Reply to every thread
+## Phase 7 — Reply where each finding was posted
 
-`gh api repos/vlang/v/pulls/<N>/comments/<comment-id>/replies -f body="..."`
-(NOT `gh pr comment` — that posts top-level). Templates:
+- Inline comment: `gh api repos/<repo>/pulls/<N>/comments/<comment-id>/replies
+  -F body=@<file>` (NOT `gh pr comment`, which posts top-level).
+- Review body or plain PR comment: there is no thread to reply in, so post one
+  PR comment, `gh api repos/<repo>/issues/<N>/comments -F body=@<file>`, that
+  links the comment it answers and takes its findings one by one.
+
+Templates:
 - confirmed: `Good catch. Fixed in commit <hash>.` + 2–5 sentences on the
   mechanism and why the fix shape was chosen (include a code fence when the
   gate/guard is short).
 - already-fixed: name the commit and the code path.
 - refuted: lead with the empirical evidence (wire trace, guard line, N/N runs),
   then the mechanism, then the decision (`Keeping X off the baseline.`).
-Multi-line bodies: `-f body="$(cat <<'EOF' ... EOF)"` from the Bash tool —
-never a pwsh here-string through the Bash tool.
+Multi-line bodies: write the text to a file in the scratchpad and pass
+`-F body=@<file>` — never a pwsh here-string through the Bash tool. Replies are
+public: show the user the text before posting it.
 
 ## Phase 8 — Bookkeeping (same session, unprompted)
 
-- Miss-corpus rows + SKILL.md angle bullets + detectors (Phase R step 8).
+- Miss-corpus rows + SKILL.md angle bullets + detectors (`/vreview` Phase R
+  step 6).
 - Sync `code-review-reference.html` — the commit-gate hook now also blocks when
   review docs are newer than the HTML.
 - Update the project memory (e.g. `project_http_conn_pooling.md`) if the PR's

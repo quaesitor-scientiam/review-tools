@@ -2612,7 +2612,7 @@ changes:
   this new function's doc fully specify its contract"; (2) a doc-only
   contract-tightening edit to an EXISTING function that changes no runtime
   behavior — the "impact analysis before narrowing behavior" check (Phase
-  4 of `/codex-respond`) only fires on BEHAVIORAL changes, so a doc-only
+  4 of `/review-respond`) only fires on BEHAVIORAL changes, so a doc-only
   clarification slips past it with no test to catch the resulting
   inconsistency.
 - **A claim that something doesn't exist is a search result: search for the
