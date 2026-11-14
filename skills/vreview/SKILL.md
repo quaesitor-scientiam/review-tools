@@ -1721,6 +1721,21 @@ new folder's build. The pass had three read rows written from memory, and the
 only parties were another account and a second wipe. An earlier pass had
 named the `item()`-to-removal window as a limit, but the PR never disclosed
 it, and no pause ever sat at that look.
+**A writer is a sequence of steps, and only some of them are protected (rev 109).**
+The protection a writer relies on (a lock, an open handle) starts at one of its
+steps. Every step before it is unprotected. List each writer's steps in order,
+mark where the protection starts, and give every earlier step its own row
+against every action the reviewed code takes, removing an empty folder
+included. The pause goes at the act itself, and a fallback branch that looks
+again before it acts is its own look and act, with its own pause. In a race
+row, also read what each copy prints against the final tree, not only its exit
+status: a message that names a cause ("a build moved it aside") is a claim
+about who acted. Missed on vlang/v#31848 (adversarial round 6, 2026-11-14,
+after the rev 108 rule was applied): a build makes its tool cache folder and
+only later creates its lock file, and a wipe in that gap removed the empty
+folder, so the build failed. When two wipes ran at once, one printed that a
+build had moved the folder aside. The only pause in `wipe_item` sat before the
+open, so the removal in the fallback branch was never held open.
 
 **Artifact: concurrency matrices.** All three tables above, one set per
 diff. State "none" for a matrix with no applicable rows (e.g. a diff with
@@ -2442,6 +2457,15 @@ wire-parsing code.
   When the program under test is V itself, put `V_C_ERROR_BUG_REPORT_DISABLED=1` in `env`
   and never compile a program in `prepare` beyond what the tree needs: a C compile that
   fails under the probe's environment uploads an automatic bug report otherwise.
+  **Two more axes (rev 109).** Run as root, an object that another account owns, in a folder
+  that account can write to (a sticky one included), can be swapped by its owner at any time:
+  every action root takes on it by name after a look (a `chmod`, an open, an unlink) is a read
+  row with that owner as the other party, and a pause. And run the matrix once more with every
+  mode that promises to change nothing (`--dry-run`), requiring an unchanged tree in every
+  cell, link targets included. Missed on vlang/v#31848 (adversarial round 6, 2026-11-14): a
+  root wipe repaired another user's lock file in a sticky folder with a `chmod` by name, which
+  follows a link the owner swaps in; and a dry run wrote a probe file into `VTOOLS_CACHE_DIR`,
+  through a planted link. The matrix had run only the real command.
 
 ### Angle H — Absence search (what MUST exist but doesn't)
 
@@ -2556,6 +2580,16 @@ Ask, for every file/function touched or newly introduced:
   `cmd/tools/vwipe-cache_test.v`. No detector: which folders can hold what is a
   fact about the configuration, not a syntactic pattern.
 
+- **A look that fails must not decide for the destructive branch (rev 109).** When a
+  function that classifies something (a file's kind, its owner, a lock's state) falls back to
+  an answer that means "could not tell" (a failed `lstat`, `EMFILE`, `EACCES`), list what every
+  caller does with that answer. "Could not tell" must keep the object and report a failure; it
+  must never take the branch that removes, overwrites or unlocks. Trigger the failure in a
+  test: `ulimit -n` low for descriptors, a folder without read or search permission. Missed on
+  vlang/v#31848 (adversarial round 6, 2026-11-14): out of descriptors, the wipe's `item()`
+  reported a lock file as an unknown object of nobody's, and a root wipe then deleted the lock
+  file a running build held. An earlier pass had noted that `item()` degrades, and never asked
+  what its callers do with that.
 - **Every best-effort failure in a safety mechanism is a disclosed limit or a finding (rev
   102).** For each `or { return }`, timeout or skipped write in code whose job is to protect
   something (a registration, a lock, a marker), state what it leaves unprotected when it fires,
@@ -3127,6 +3161,22 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   still wrote `keeping <lock>` for each lock file before the folder was removed, and the dry
   run said `except <folder>` for a folder the real run deletes; the test checked only that a
   `removing <folder>` line was present.
+- **A dry run carries the state the real run makes (rev 109).** A dry run is a second
+  implementation of the run. For every change the real run makes that a later decision reads
+  (a lock file it creates, a folder its removals leave empty, a link or file it removes), the
+  dry run needs the same answer. Compare the dry run with the real run on every summary line,
+  not only on the per-item lines, with one fixture per such change. Missed on vlang/v#31848
+  (adversarial round 6, 2026-11-14, 4 findings): the dry run said a folder would go because it
+  did not count the lock file the real run creates; it said a link or an empty nested tool
+  cache folder would stay because it was still on disk; and the dry-run test compared only the
+  "would remove" and "removing" lines.
+- **Every resource held on purpose is a mutant (rev 109).** For each lock, handle or
+  descriptor the code keeps by design (`held << lock`, a release placed late), add a mutant
+  that releases it right after taking it, and a test that observes the hold from another
+  process (a second process's lock attempt must wait). An inventory built from conditions never
+  lists it, because holding is not a condition. Missed on vlang/v#31848 (adversarial round 6):
+  a version of `probe()` that let every build lock go at once passed all the tests, though the
+  wipe promises that a build starting meanwhile waits.
 - **Every input advance is a mutant (rev 104).** In code that scans or parses, delete each
   statement the diff adds that moves the input on (`tok = scan.scan()`, `p.next()`, a
   `lookahead.scan()` whose result is kept), one mutant each. A dropped advance is the commonest
