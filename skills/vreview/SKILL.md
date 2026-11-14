@@ -1691,6 +1691,36 @@ language write the two statements yourself (create the `at_pause` file in
 `work`, wait for `go_on`). One pause per row: the gap between a listing and
 the identity taken for it, between a check and the act it guards, between
 two passes over one folder.
+**A read row's parties come from a grep, the program's own first (rev 108).**
+Rows written from memory name the parties a threat model suggests (another
+account, a second copy) and miss the program itself. For each read row, grep
+the codebase for every path that creates, renames, replaces or removes the
+object the row looks at (`os.rename`, `mkdir`, `symlink`, `rm`, `rmdir` on that
+path or on what builds it), and name each one as a party. The work the change
+protects comes first: a build is a writer of the very folders a wipe keeps for
+it. Two shapes always get their own row and their own pause:
+- **An identity taken once and used later** (a resolved path, a listing, an
+  inode captured when the run starts): the row says what the action does when
+  the object at that path changes kind during the run, such as a link replaced
+  by a real folder, or a folder moved aside and made again. Keep where the
+  object lies as well as what it resolved to.
+- **A look that picks between a protected way and a generic, destructive one**
+  (`is_dir`, `lstat`, an item's kind, and then a recursive removal by name): the
+  object can change between the look and the act, so the act must not depend on
+  the look. Open first, and decide from what was opened. A fallback must never
+  reach a recursive removal by name. `detect_look_then_recursive_remove` lists
+  this shape in any function that also opens folders.
+A window that an earlier pass named, even as a limit, stays a row until the
+PR text discloses it. A limit that drops out of the record is a finding.
+Missed on vlang/v#31848 (maintainer review of `9ea0bfa719`, 2026-11-14, two
+[P2]). The wipe kept only the resolved path of each known tool cache folder.
+So when a build replaced the default `<VTMP>/tools` link by a real folder, the
+VTMP pass removed that build. A known folder seen as missing during a build's
+rename-and-recreate fell through to `remove_tree` by name, which removed the
+new folder's build. The pass had three read rows written from memory, and the
+only parties were another account and a second wipe. An earlier pass had
+named the `item()`-to-removal window as a limit, but the PR never disclosed
+it, and no pause ever sat at that look.
 
 **Artifact: concurrency matrices.** All three tables above, one set per
 diff. State "none" for a matrix with no applicable rows (e.g. a diff with
@@ -3578,6 +3608,7 @@ Matrix 1 (shared field — readers — writers — lock): <rows> (or "none")
 Matrix 2 (wait predicate — all mutators — wake/broadcast path): <rows> (or "none")
 Matrix 3 (action sized under lock — committed under same protection?): <rows> (or "none")
 Matrix 3 read rows (rev 107): <read of shared state — what may change it before the action — what the action then does> (or "none")
+Matrix 3 parties (rev 108): <per read row, the writers of that object found by grep (command and hits), the program's own first; the pause run for each identity-taken-once and look-then-act row> (or "none")
 Race detector run (Angle F, rev 95): <command — where it ran — exit code — races reported> (or "N/A — no concurrent code in this diff", or "not run — reason")
 
 Negative evidence / skipped areas:
