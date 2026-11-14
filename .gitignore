@@ -5,3 +5,4 @@ Thumbs.db
 /detectors/*.exe
 /detectors/*.exe.manifest
 /detectors/.*.v3cc.*/
+/detectors/*.def
