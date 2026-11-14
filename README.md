@@ -40,6 +40,9 @@ See [MIGRATION.md](MIGRATION.md). Short form: clone, `claude plugin marketplace 
 Run the detector fixture suite with `bash tests/run_fixtures.sh` (see `tests/README.md`). Run the
 probe self-test with `bash tests/vprobe/selftest.sh [path/to/v]` on Linux, WSL or macOS.
 
+For OpenCode (skills + `/vreview` slash commands, no Claude Code needed),
+see [OPENCODE.md](OPENCODE.md).
+
 ## History
 
 The first commit is a verbatim copy of the canonical files as of 2026-10-18:
