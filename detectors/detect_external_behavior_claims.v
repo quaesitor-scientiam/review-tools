@@ -11,8 +11,16 @@
 // comments made false claims about V ("an item starts after `;` or `,`, as V's
 // parser forms it", "V accepts and ignores it", "only when a name follows").
 //
+// A Markdown file (`.md`) is user documentation of what the code does: every new
+// prose line outside code fences is listed, whether or not it names a tool, since
+// a docs sentence about a checker describes that checker's model of another tool.
+// Missed on vlang/v PR 31407 (adversarial round 15, 2026-11-14): docs.md said an
+// alignment directive between `rep` and a string instruction "ends the prefix",
+// true only when it emits padding (`.p2align 0` emits none); no ledger row had it.
+//
 // This is an enumerate-and-verify aid: a listed line is a candidate, not a bug.
-// It reads whole-line `//` comments only; a trailing comment after code is not listed.
+// In a V file it reads whole-line `//` comments only; a trailing comment after code
+// is not listed.
 //
 // Usage: detect_external_behavior_claims <file> [base_copy_or_empty]
 // Exit: 1 = at least one new claim line listed; 0 = none; 2 = usage error.
@@ -31,6 +39,28 @@ fn comment_text(line string) ?string {
 		return trimmed.trim_left('/').trim_space()
 	}
 	return none
+}
+
+// claim_lines maps each line index to the text that can hold a claim: a whole-line
+// `//` comment in a V file, a prose line outside ``` fences in a Markdown file.
+fn claim_lines(lines []string, markdown bool) map[int]string {
+	mut out := map[int]string{}
+	mut fenced := false
+	for i, line in lines {
+		if markdown {
+			trimmed := line.trim_space()
+			if trimmed.starts_with('```') {
+				fenced = !fenced
+				continue
+			}
+			if !fenced && trimmed != '' {
+				out[i] = trimmed
+			}
+		} else if text := comment_text(line) {
+			out[i] = text
+		}
+	}
+	return out
 }
 
 fn names_another_tool(text string) bool {
@@ -60,18 +90,19 @@ fn main() {
 		eprintln('cannot read ${file}')
 		exit(2)
 	}
+	markdown := file.ends_with('.md')
 	mut old := map[string]bool{}
 	if base != '' {
-		for line in os.read_lines(base) or { []string{} } {
-			if text := comment_text(line) {
-				old[text] = true
-			}
+		base_lines := os.read_lines(base) or { []string{} }
+		for _, text in claim_lines(base_lines, markdown) {
+			old[text] = true
 		}
 	}
+	texts := claim_lines(lines, markdown)
 	mut found := 0
-	for i, line in lines {
-		text := comment_text(line) or { continue }
-		if text in old || !names_another_tool(text) {
+	for i in 0 .. lines.len {
+		text := texts[i] or { continue }
+		if text in old || (!markdown && !names_another_tool(text)) {
 			continue
 		}
 		println('  line ${i + 1}: ${text}')

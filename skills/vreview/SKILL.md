@@ -2784,7 +2784,18 @@ changes:
   the code the comment describes and against the other comments on the same rule: a sentence
   true of the other tool but narrower or wider than this code is a false claim about this code.
   On a rerun, every comment line the fix adds or edits gets a row too. The detector reads
-  whole-line `//` comments only; a trailing comment after code needs a row by hand. Missed on
+  whole-line `//` comments only; a trailing comment after code needs a row by hand.
+  **User docs get rows too (rev 111).** Pass each touched `.md` file with its base copy: the
+  detector then lists every new prose line, whether or not it names a tool, since a docs
+  sentence about a check describes the check's model of another tool. A sentence whose effect
+  depends on a condition ("as its padding may take it") is probed on each side of the
+  condition; stated as a fact, it must hold on both. Missed on vlang/v PR 31407 (adversarial
+  round 15, 2026-11-14): "an alignment directive ... ends the prefix" was never in the ledger.
+  **The ledger has one row per listed line, counted (rev 111, verification).** Write the
+  detector's count beside the ledger and give every listed line a row, even one that says "no
+  claim about another tool"; a ledger shorter than the count is unfinished. A blind rev 111 run
+  of the same diff got 46 lines from the detector, wrote 9 rows, and the `.p2align` sentence
+  was not among them. Missed on
   vlang/v PR 31981 (adversarial round 7, 2026-11-08): "with a default V accepts and ignores it"
   had been checked through json2 output only, while V's comptime `attrs` records the flag; "an
   item starts after `;` or `,`, as V's parser forms it" was false; and a test comment written
@@ -3072,6 +3083,37 @@ adds or changes:
   - **A directive or prefix alone between the two halves** of anything carried across
     statements (`rep` then `.p2align` then `movsb`), once with a member of each class the
     code treats alike: a directive that emits padding and one that emits nothing (`.globl`).
+    **A directive whose effect depends on its argument or position is two members (rev 111):**
+    run it where it acts and where it does nothing (`.p2align 4` before an unaligned
+    instruction, and `.p2align 0`, `.balign 1` or an already aligned offset). The docs
+    sentence that describes the case is checked against both runs.
+  - **Every split of a carried sequence into statements (rev 111).** For each sequence the
+    model carries state across (`rep`, `wait`, `movsb`), run every way of cutting it into
+    lines: each word on its own line, the first two on one line, the last two on one line, all
+    on one line, and each order the tool accepts. The state must be right after each cut, not
+    only after the cuts the fixtures use.
+  - **Every implementation of the tool the build may run (rev 111).** Where the target can be
+    built by more than one implementation of the modelled tool (GNU as, and the LLVM assembler
+    that clang uses, the default on macOS), run each probe through each one. A program one
+    implementation accepts is a valid program, even if the other rejects it, and the model must
+    match that implementation's reading of it or leave it unchecked.
+    Missed on vlang/v PR 31407 (adversarial round 15, 2026-11-14, 2 of 4): the probes of the
+    carried `rep` cut `rep` / `wait` / `movsb` three ways and ran GNU as only. A lone
+    `rep wait` line, which GNU as rejects and clang assembles as `repz fwait`, kept `rep`
+    pending, and the next `movsb` was reported as writing `rcx`. The docs sentence "an
+    alignment directive ... ends the prefix" was probed with `.p2align 4` only; with
+    `.p2align 0` both assemblers emit `f3 a4` and the prefix still applies.
+  - **`vprobe asm` runs these three rules (rev 111, verification).** Give it every sequence
+    the model carries state across, with `{a|b}` for each directive argument or word to vary
+    (`rep ; .p2align {0|4} ; movsb`), every assembler the build may run (it refuses fewer
+    than two), the checker command and a V file to wrap the template in. It makes every
+    choice and every split into lines, runs each through the checker and each assembler, and
+    flags a row the assemblers treat differently and a pair of choices that assemble
+    differently while the checker's verdict stays the same. Each flagged row gets a
+    disposition. A rerun builds its probe rows from the rules as they are now: the blind
+    rev 111 run reused the previous round's 176-row inventory, which had `.p2align 4` and
+    no `rep wait` line, ran GNU as only, and missed both findings again. The probe flags
+    both on the unfixed code (`rep wait` / `movsb`, and `.p2align 0` / `.balign 1`).
   - **Each form of each instruction the model treats as neutral or as ending its state.**
     A `call` to a function returns; `call 1f; 1: pop %%rbx` leaves its return address on the
     stack. A jump the model does not follow still reorders what runs. Run every form, and
@@ -3236,6 +3278,23 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   runs took a test of what the changed predicate still refuses for coverage of what it
   newly accepts; the run that ran mutants reported the gap.
 - **The mutants come from the diff: `changed_from`, and three more generated kinds (rev 110).**
+  **`changed_from` is required, and loops are cut (rev 111).** `vprobe mutate` now refuses a
+  spec with `source` and no `changed_from` (use an empty file for a new file). It also
+  generates two mutants per `for x in items {` loop: the loop sees only the first item, and
+  only the last. A loop that looks at every word of a line and is tested only with the word
+  that matters first passes either cut. Missed on vlang/v PR 31407 (adversarial round 15,
+  2026-11-14, 2 of 4): the last sweep named three functions by hand, so the dropped
+  `words.all(...)` clause of the `rep_pending` line in `check_inline_asm_raw_clobbers` was
+  never generated, and no kind cut `inline_asm_raw_has_unread_prefix`'s loop over the
+  mnemonic's words; both survived every fixture.
+  **Every survivor gets its own disposition, checked (rev 111, verification).** Name a file of
+  `id<TAB>kind<TAB>reason` rows in the spec's `dispositions`; kind is finding, stated (the
+  reason quotes the docs sentence), limit, or equivalent. An equivalent row quotes, in
+  backticks, the code elsewhere in the file that makes the mutant change nothing. The probe
+  refuses a range or list in place of one id, an equivalent row that quotes no such code, and
+  a survivor with no row, and exits 1 until each is fixed. The blind rev 111 run generated the
+  dropped `words.all(...)` mutant, saw it survive, and filed it in a bulk "equivalent by
+  reading: #244, #245, #249" list; no code makes that clause redundant.
   Give `vprobe mutate` `changed_from`, the file as the last mutation run saw it (the merge base
   the first time). Every function whose text differs is added to `functions`, predicate or
   not, so a function changed after its last run cannot be left out. For those functions the

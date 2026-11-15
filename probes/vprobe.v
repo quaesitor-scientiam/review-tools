@@ -9,6 +9,7 @@
 //   v -w run probes/vprobe.v mutate <spec.json> [--list]
 //   v -w run probes/vprobe.v trace  <spec.json>
 //   v -w run probes/vprobe.v siblings <spec.json>
+//   v -w run probes/vprobe.v asm    <spec.json>
 //
 // matrix: runs `cmd` once per (place, kind of object, account) with the base build and with the
 //   head build, each time over a fresh copy of the same tree, and prints the cells where the two
@@ -49,6 +50,13 @@
 //   lines either side, default 12) that its function did not call at the base, it prints the
 //   sibling sites that do not reach it. A check added at one site and not at its twins shows as
 //   a row. `functions` limits the sites to those functions.
+// asm: for code that predicts what an assembler does with a template. Each of `sequences` is
+//   statements separated by `;`, with `{a|b}` for a directive argument or a word to vary. Every
+//   choice and every split of the statements into lines (a gap is a new line or a space) becomes
+//   a row; each row runs through `check` (the checker, on `wrap` with the template put in) and
+//   through every one of `assemblers`. Flagged: the assemblers disagree (one refuses, or they
+//   encode it differently), or two rows that differ only in a choice assemble differently while
+//   the checker's verdict is the same (or the same while the verdict differs).
 //
 // Spec (JSON; paths in `places` and `named` are relative to the tree's root):
 //   base, head   the two executables (matrix, race)
@@ -73,13 +81,20 @@
 //   source, functions   mutate: also generate the mutants of these functions of `source`, one per
 //                clause of each `&&`/`||` condition, one per early-return guard, two per lone
 //                comparison that is stored or returned (always true, always false), and one per
-//                call of a local `fn name(x string) string` (the argument as it came). `--list`
-//                prints them unrun.
+//                call of a local `fn name(x string) string` (the argument as it came), and two
+//                per `for x in items {` loop (it sees only the first item, only the last).
+//                `--list` prints them unrun.
 //   changed_from mutate: the same file at the revision the last mutation run covered (the merge
 //                base for the first run). Every function whose text differs is added to
 //                `functions`, so a function changed after its last run cannot be left out.
+//                Required whenever `source` is given.
 //   source, functions, test, test_file      trace
 //   source, changed_from, markers, functions, window   siblings
+//   dispositions mutate: a file of `id<TAB>kind<TAB>reason` rows, one per survivor (kind finding,
+//                stated, limit or equivalent; an equivalent row quotes in backticks the code that
+//                makes the mutant change nothing). Without it, survivors print as a template and
+//                the run exits 1.
+//   assemblers [{name, cmd}], sequences, wrap, check, work   asm
 //
 // Exit: 0 nothing flagged; 1 something flagged (rows to read, not automatically defects) or
 // something could not be run (a skipped cell, an untested mutant, a pause never reached);
@@ -145,6 +160,18 @@ mut:
 	changed_from     string
 	markers          []string
 	window           int
+	dispositions     string
+	assemblers       []Assembler
+	sequences        []string
+	wrap             string
+	check            string
+}
+
+// Assembler is one tool the build may hand a template to: `cmd` runs in a folder holding `x.s`,
+// exits non-zero when it refuses the file, and prints the disassembly (`objdump -d` lines).
+struct Assembler {
+	name string
+	cmd  string
 }
 
 struct Ctx {
@@ -1401,6 +1428,23 @@ fn changed_functions(base_path string, path string) []string {
 	return out
 }
 
+// loop_iterable returns what a `for x in items {` loop goes over, so a mutant can cut it to its
+// first or last item: a loop that should look at every item and looks at one passes any test whose
+// interesting item comes first (vlang/v PR 31407, adversarial round 15, 2026-11-14). Number ranges
+// (`0 .. n`) are left out.
+fn loop_iterable(line string) ?string {
+	code := line.trim_space()
+	if !code.starts_with('for ') || !code.ends_with(' {') || code.contains(' .. ') {
+		return none
+	}
+	at := code.index(' in ') or { return none }
+	iterable := code[at + 4..code.len - 2].trim_space()
+	if iterable == '' || line.count(' in ${iterable} {') != 1 {
+		return none
+	}
+	return iterable
+}
+
 // generate_mutants lists, for the named functions of `path`, one mutant per clause of every
 // condition and one per guard that returns early, so a predicate's checks are covered in full;
 // both constant answers for every lone comparison that is stored or returned; and, for every call
@@ -1474,6 +1518,20 @@ fn generate_mutants(path string, names []string) []Mutant {
 				}
 			}
 		}
+		if iterable := loop_iterable(line) {
+			for slice, what in {
+				'#[..1]':  'the first item'
+				'#[-1..]': 'the last item'
+			} {
+				out << Mutant{
+					file:    path
+					line:    i + 1
+					find:    ' in ${iterable} {'
+					replace: ' in ${iterable}${slice} {'
+					note:    '${current}: the loop sees ${what} only'
+				}
+			}
+		}
 		for wrapper in wrappers {
 			if wrapper == current {
 				continue
@@ -1529,6 +1587,10 @@ fn control_pass(test string, pattern string) (int, []string, string, string) {
 
 fn cmd_mutate(given Spec, list_only bool) int {
 	mut spec := given
+	if spec.source != '' && spec.changed_from == '' {
+		// rev 111: a hand-named `functions` list missed a changed function on vlang/v PR 31407.
+		fail('"source" needs "changed_from": the file at the merge base (or the last mutation run), or an empty file for a new file, so every changed function gets generated mutants')
+	}
 	if spec.changed_from != '' {
 		if spec.source == '' {
 			fail('"changed_from" needs "source", the file it is an earlier revision of')
@@ -1752,9 +1814,15 @@ fn cmd_mutate(given Spec, list_only bool) int {
 	mut survived := 0
 	mut untested := 0
 	mut kills := map[string]int{}
-	for run in runs {
+	mut survivors := map[int]Mutant{}
+	mut not_applicable := 0
+	for i, run in runs {
 		mut verdict := run.invalid
-		if verdict != '' {
+		if verdict.starts_with('INVALID: does not') && spec.mutants[i].note.contains(': the loop sees ') {
+			// A generated loop cut over a map or an iterator cannot be sliced: nothing to test.
+			verdict = 'NOT APPLICABLE (the iterable cannot be sliced: a map or an iterator)'
+			not_applicable++
+		} else if verdict != '' {
 			untested++
 		}
 		if verdict == '' {
@@ -1774,6 +1842,7 @@ fn cmd_mutate(given Spec, list_only bool) int {
 				// Green, or only the tests that fail without the mutant too.
 				verdict = '**SURVIVED**'
 				survived++
+				survivors[i + 1] = spec.mutants[i]
 			} else {
 				// A failure with no test name: a crash or a timeout.
 				verdict = 'KILLED (exit ${run.exit}, no test named: ${run.first})'
@@ -1783,12 +1852,31 @@ fn cmd_mutate(given Spec, list_only bool) int {
 	}
 	println('')
 	println('${survived} survived. A survivor is a line no test checks; a mutant killed only by a test of something else is a gap too.')
+	if not_applicable > 0 {
+		println('${not_applicable} generated loop cuts do not apply: the loop goes over a map or an iterator.')
+	}
 	if untested > 0 {
 		println('${untested} could not be tested (the INVALID rows): they are neither killed nor survived. Correct them and rerun.')
 	}
 	for name, count in kills {
 		if count >= 3 {
 			println('`${name}` is among the killers of ${count} mutants: if they are unrelated, check that it is not flaky (rerun, or list it in ignore_tests).')
+		}
+	}
+	if survivors.len > 0 {
+		if spec.dispositions == '' {
+			println('')
+			println('Every survivor needs its own disposition. Write one `id<TAB>kind<TAB>reason` row per survivor to a file and name it in `dispositions`, then rerun (rev 111). kind is finding, stated (the reason quotes the docs sentence in double quotes), limit, or equivalent (the reason quotes, in backticks, the code elsewhere in the file that makes the mutant change nothing). One row per id: no ranges.')
+			for id, m in survivors {
+				println('${id}\t?\t${m.note}')
+			}
+			survived++
+		} else {
+			bad := check_dispositions(spec.dispositions, survivors)
+			if bad > 0 {
+				println('${bad} disposition problems: the run is not complete until each is fixed.')
+				survived++
+			}
 		}
 	}
 	// A mutant that was not tested is not a killed mutant.
@@ -2405,6 +2493,309 @@ fn cmd_siblings(spec Spec) int {
 	return if absent > 0 { 1 } else { 0 }
 }
 
+// check_dispositions reads `id<TAB>kind<TAB>reason` rows and prints every survivor without one,
+// every range or list in place of one id, and every reason that does not hold what its kind
+// needs. An `equivalent` row must quote, in backticks, code that is on another line of the
+// mutant's file: on vlang/v PR 31407 a reviewer filed a real gap (a dropped
+// `words.all(...)` clause) in a bulk "equivalent by reading" range. It returns the problem count.
+fn check_dispositions(path string, survivors map[int]Mutant) int {
+	text := os.read_file(path) or {
+		println('cannot read dispositions ${path}: ${err}')
+		return 1
+	}
+	mut bad := 0
+	mut seen := map[int]bool{}
+	for n, raw in text.split_into_lines() {
+		line := raw.trim_space()
+		if line == '' || line.starts_with('#') {
+			continue
+		}
+		fields := raw.split('\t')
+		if fields.len < 3 || fields[2].trim_space() == '' {
+			println('${path}:${n + 1}: needs id, kind and reason separated by tabs')
+			bad++
+			continue
+		}
+		id_text := fields[0].trim_space()
+		if !id_text.bytes().all(it.is_digit()) {
+			println('${path}:${n + 1}: `${id_text}` is not one id: each survivor gets its own row')
+			bad++
+			continue
+		}
+		id := id_text.int()
+		if id in seen {
+			println('${path}:${n + 1}: ${id} has a row already: one row per survivor')
+			bad++
+			continue
+		}
+		kind := fields[1].trim_space()
+		reason := fields[2..].join(' ').trim_space()
+		m := survivors[id] or {
+			println('${path}:${n + 1}: ${id} did not survive this run')
+			bad++
+			continue
+		}
+		seen[id] = true
+		match kind {
+			'finding', 'limit' {}
+			'stated' {
+				if reason.count('"') < 2 {
+					println('${path}:${n + 1}: ${id} is `stated` but quotes no sentence')
+					bad++
+				}
+			}
+			'equivalent' {
+				source := os.read_lines(m.file) or { []string{} }
+				mut found := false
+				parts := reason.split('`')
+				for k := 1; k < parts.len; k += 2 {
+					quote := parts[k].trim_space()
+					if quote == '' {
+						continue
+					}
+					for ln, code in source {
+						// The code that makes the mutant redundant is on another line.
+						if ln + 1 != m.line && code.contains(quote) {
+							found = true
+						}
+					}
+				}
+				if !found {
+					println('${path}:${n + 1}: ${id} is `equivalent` but quotes no code of ${os.base(m.file)} (other than the mutated text) that makes `${m.find}` redundant')
+					bad++
+				}
+			}
+			else {
+				println('${path}:${n + 1}: kind `${kind}` is not finding, stated, limit or equivalent')
+				bad++
+			}
+		}
+	}
+	for id, m in survivors {
+		if id !in seen {
+			println('survivor ${id} has no disposition (${m.note})')
+			bad++
+		}
+	}
+	if bad == 0 {
+		println('Every survivor has a disposition (${survivors.len}).')
+	}
+	return bad
+}
+
+// expand_choices expands every `{a|b}` in `seq` into one string per choice.
+fn expand_choices(seq string) []string {
+	mut start := -1
+	mut end := -1
+	mut from := 0
+	for {
+		open := seq.index_after('{', from) or { return [seq] }
+		close := seq.index_after('}', open) or { return [seq] }
+		if seq[open + 1..close].contains('|') {
+			start, end = open, close
+			break
+		}
+		// A brace group with no choice (`{vex}`) is kept as written.
+		from = close + 1
+	}
+	inner := seq[start + 1..end]
+	mut out := []string{}
+	for choice in inner.split('|') {
+		out << expand_choices(seq[..start] + choice + seq[end + 1..])
+	}
+	return out
+}
+
+// statement_splits returns every way to put `stmts` on lines: each gap is a new line or a space.
+fn statement_splits(stmts []string) [][]string {
+	if stmts.len <= 1 {
+		return [stmts]
+	}
+	mut out := [][]string{}
+	for rest in statement_splits(stmts[1..]) {
+		mut joined := [stmts[0] + ' ' + rest[0]]
+		joined << rest[1..]
+		out << joined
+		mut apart := [stmts[0]]
+		apart << rest
+		out << apart
+	}
+	return out
+}
+
+// disassembly returns the instructions of `objdump -d` output, without padding (`nop` forms),
+// each as `bytes mnemonic operands`, so two assemblers or two directive arguments compare.
+fn disassembly(output string) []string {
+	mut out := []string{}
+	mut kept := false
+	for line in output.split_into_lines() {
+		colon := line.index(':') or { continue }
+		addr := line[..colon].trim_space()
+		if addr == '' || !addr.bytes().all(it.is_hex_digit()) {
+			continue
+		}
+		words := line[colon + 1..].fields()
+		mut k := 0
+		for k < words.len && words[k].len == 2 && words[k].bytes().all(it.is_hex_digit()) {
+			k++
+		}
+		if k == 0 {
+			continue
+		}
+		insn := words[k..].join(' ')
+		if insn == '' {
+			// A continuation line: more bytes of the instruction above, kept only with it.
+			if kept && out.len > 0 {
+				last := out[out.len - 1]
+				fields := last.fields()
+				mut nb := 0
+				for nb < fields.len && fields[nb].len == 2 && fields[nb].bytes().all(it.is_hex_digit()) {
+					nb++
+				}
+				out[out.len - 1] = (fields[..nb].join(' ') + ' ' + words[..k].join(' ') + ' ' +
+					fields[nb..].join(' ')).trim_space()
+			}
+			continue
+		}
+		kept = !(insn.contains('nop') || insn.starts_with('data16')
+			|| insn.starts_with('xchg %ax,%ax'))
+		if !kept {
+			continue
+		}
+		out << words[..k].join(' ') + ' ' + insn
+	}
+	return out
+}
+
+// asm_outcome is what two results are compared by: the bytes, or that the assembler refused (the
+// wording of a refusal and the spelling of a disassembly differ between tools).
+fn asm_outcome(result string) string {
+	if result.starts_with('refuses: ') {
+		return 'refuses'
+	}
+	mut bytes := []string{}
+	for insn in result.split(' ; ') {
+		for word in insn.fields() {
+			if word.len != 2 || !word.bytes().all(it.is_hex_digit()) {
+				break
+			}
+			bytes << word
+		}
+	}
+	return bytes.join(' ')
+}
+
+struct AsmRow {
+mut:
+	group   string
+	lines   []string
+	checker string
+	results map[string]string
+}
+
+// cmd_asm runs every split of every sequence through the checker and through every assembler,
+// and flags the rows the assemblers treat differently and the choices of a `{a|b}` that change
+// what is assembled while the checker's verdict stays the same (or the reverse).
+fn cmd_asm(spec Spec) int {
+	if spec.assemblers.len < 2 {
+		fail('"assemblers" needs every assembler the build may run (GNU as and LLVM\'s at least): rev 111, vlang/v PR 31407')
+	}
+	if spec.sequences.len == 0 || spec.wrap == '' || spec.check == '' {
+		fail('asm needs "sequences", "wrap" (a V file with {template}) and "check" (a command with {file})')
+	}
+	work := if spec.work != '' {
+		spec.work
+	} else {
+		os.join_path(os.temp_dir(), 'vprobe_asm_${os.getpid()}')
+	}
+	os.mkdir_all(work) or { fail('cannot make ${work}: ${err}') }
+	mut rows := []AsmRow{}
+	for seq in spec.sequences {
+		for choice in expand_choices(seq) {
+			stmts := choice.split(';').map(it.trim_space()).filter(it != '')
+			for j, lines in statement_splits(stmts) {
+				rows << AsmRow{
+					group: '${seq} #${j}'
+					lines: lines
+				}
+			}
+		}
+	}
+	for i, mut row in rows {
+		dir := os.join_path(work, 'r${i + 1}')
+		os.mkdir_all(dir) or { fail('cannot make ${dir}: ${err}') }
+		os.write_file(os.join_path(dir, 'x.s'), row.lines.map(it.replace('%%', '%')).join('\n') + '\n') or {
+			fail('${err}')
+		}
+		mut template := []string{}
+		for k, l in row.lines {
+			// Inside a V string literal: escape what V would read (a quote, `\`, `$`).
+			lit := l.replace('\\', '\\\\').replace('"', '\\"').replace('$', '\\$')
+			template << '\t\t"${lit}' + if k + 1 < row.lines.len { '\\n\\t"' } else { '"' }
+		}
+		vfile := os.join_path(dir, 'p.v')
+		os.write_file(vfile, spec.wrap.replace('{template}', template.join('\n'))) or { fail('${err}') }
+		res := exec_one(spec.check.replace('{file}', quoted(vfile)))
+		mut verdict := if res.exit_code == 0 { 'accepts' } else { 'refuses' }
+		for l in res.output.split_into_lines() {
+			if l.contains('error:') || l.contains('warning:') {
+				verdict += ': ' + l.all_after('error:').all_after('warning:').trim_space()
+				break
+			}
+		}
+		row.checker = verdict
+		for a in spec.assemblers {
+			r := exec_one('cd ${quoted(dir)} && ${a.cmd}')
+			row.results[a.name] = if r.exit_code != 0 {
+				mut why := first_line(r.output)
+				for l in r.output.split_into_lines() {
+					if l.to_lower().contains('error') {
+						why = l.trim_space()
+						break
+					}
+				}
+				'refuses: ' + why
+			} else {
+				disassembly(r.output).join(' ; ')
+			}
+		}
+	}
+	mut flagged := 0
+	println('| # | lines | checker | ' + spec.assemblers.map(it.name).join(' | ') + ' | flag |')
+	println('|---|---|---|' + spec.assemblers.map('---').join('|') + '|---|')
+	for i, row in rows {
+		mut flags := []string{}
+		first := asm_outcome(row.results[spec.assemblers[0].name])
+		for a in spec.assemblers[1..] {
+			if asm_outcome(row.results[a.name]) != first {
+				flags << 'assemblers differ'
+				break
+			}
+		}
+		for k, other in rows {
+			if k == i || other.group != row.group || other.lines == row.lines {
+				continue
+			}
+			for a in spec.assemblers {
+				same_code := asm_outcome(other.results[a.name]) == asm_outcome(row.results[a.name])
+				if !same_code && other.checker == row.checker {
+					flags << 'r${k + 1} assembles differently under ${a.name}, same checker verdict'
+				} else if same_code && other.checker != row.checker {
+					flags << 'r${k + 1} assembles the same under ${a.name}, other checker verdict'
+				}
+			}
+		}
+		if flags.len > 0 {
+			flagged++
+		}
+		cells := spec.assemblers.map(row.results[it.name])
+		println('| r${i + 1} | `${row.lines.join('` / `')}` | ${row.checker} | ${cells.join(' | ')} | ${flags.join('; ')} |')
+	}
+	println('')
+	println('${rows.len} rows, ${flagged} flagged. A flagged row gets a disposition: the checker is right for every assembler, a finding, or a limit the docs state (quote it).')
+	return if flagged > 0 { 1 } else { 0 }
+}
+
 // stale_note says so when the spec is older than the program it tests: what the program gained
 // since the spec was written has no row yet.
 fn stale_note(spec_path string, bin string) {
@@ -2417,8 +2808,8 @@ fn stale_note(spec_path string, bin string) {
 fn main() {
 	args := os.args[1..]
 	paths := args.filter(!it.starts_with('--'))
-	if paths.len != 2 || paths[0] !in ['matrix', 'race', 'mutate', 'trace', 'siblings'] {
-		eprintln('usage: v run vprobe.v matrix|race|mutate|trace|siblings <spec.json> [--all] [--list]')
+	if paths.len != 2 || paths[0] !in ['matrix', 'race', 'mutate', 'trace', 'siblings', 'asm'] {
+		eprintln('usage: v run vprobe.v matrix|race|mutate|trace|siblings|asm <spec.json> [--all] [--list]')
 		eprintln('The header of vprobe.v describes the spec.')
 		exit(2)
 	}
@@ -2431,6 +2822,7 @@ fn main() {
 		'race' { cmd_race(spec) }
 		'trace' { cmd_trace(spec) }
 		'siblings' { cmd_siblings(spec) }
+		'asm' { cmd_asm(spec) }
 		else { cmd_mutate(spec, '--list' in args) }
 	}
 	exit(code)
