@@ -170,7 +170,8 @@ fn pair(a string) (bool, string) {
 	return a == '', a
 }
 EOF
-echo '{"test": "true", "source": "'$m'/pred.v", "functions": ["is_lock_name", "pair"]}' > "$m/list.json"
+cp "$m/pred.v" "$m/pred_base.v"
+echo '{"test": "true", "source": "'$m'/pred.v", "changed_from": "'$m'/pred_base.v", "functions": ["is_lock_name", "pair"]}' > "$m/list.json"
 "$P" mutate "$m/list.json" --list > "$m/list.out" 2>&1
 expect_exit list 0 "$m/list.out" $?
 has list "$m/list.out" "pred.v:4 \| \`!name.starts_with\('.'\) \|\| \`"
