@@ -136,6 +136,17 @@ memory, because memory does not sync.
    one added row, the path `VTOOLS_CACHE_DIR` names, shows two of the defects in under a
    minute. The option "wipe the folder the link leads to" was recommended to the user without
    its row for a link another account plants.
+   **Scratch harnesses are not written in Python (rev 112).** A loop over mutants, probes or
+   test files that `vprobe` does not cover is a V program or a `#!/bin/bash` script that wraps
+   each run in `timeout -k 10 <secs>`. Python's `subprocess.run(..., timeout=...)` kills only
+   the process it started; the compiler that process started keeps running. Say so in every
+   brief to a subagent or side session that may write such a loop. Missed on branch
+   `claude/fastc-leading-attr-flags` (2026-11-14): six `v3_full` compiles of one test input
+   from that branch's review, which the branch tip builds at once, ran for 10 to 21 hours
+   until the user killed them by hand. Two started after the review wrote its `gmut*.py`
+   mutant loops; what started the other four was not found. Measured on macOS (2026-11-15):
+   `/usr/bin/timeout` ends the whole process group, so `timeout sh -c './v test ...'` left
+   nothing behind, while the same chain under Python left the grandchild running.
 
 ## Plugin paths
 This skill ships in the `review-tools` plugin (git repo, installed at user scope).
