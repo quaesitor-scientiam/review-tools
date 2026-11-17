@@ -155,7 +155,13 @@ memory, because memory does not sync.
    endless stalled the run for about 3 hours, and after `graphify_test.exe` was killed twice by
    hand, vprobe counted it as "KILLED (exit 1, no test named)". On Linux and macOS vprobe runs
    every spec command under `timeout -k 10 600`, mutate's and trace's `test` and `build`
-   included; until 2026-11-17 those two ran with no limit there.
+   included; until 2026-11-17 those two ran with no limit there. The SIGTERM at the limit reaches
+   the whole process group with GNU and with uutils coreutils; the SIGKILL 10 s later reaches the
+   whole group only with GNU. Ubuntu 26.04's `/usr/bin/timeout` is uutils, and there
+   `timeout -k 2 1 sh -c 'trap "" TERM; sh -c "sleep 9"'` exits 137 and leaves the `sleep`
+   running (GNU's `gnutimeout` ends it). A test whose processes ignore SIGTERM can therefore still
+   hang a vprobe run on that system: wrap such a test in a shorter GNU limit in the spec
+   (`gnutimeout -k 10 580 v test ...`), which ends the whole group before vprobe's own limit.
 
 ## Plugin paths
 This skill ships in the `review-tools` plugin (git repo, installed at user scope).

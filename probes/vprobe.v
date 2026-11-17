@@ -98,12 +98,17 @@
 //   assemblers [{name, cmd}], sequences, wrap, check, work   asm
 //
 // Time limit: every spec command (cmd, prepare, setup, actor, in_pause, build, test, check, the
-// assemblers) still running after 600 s is ended, with every process it started, and counts as
-// exit 124, or 137 when it had to be killed (mutate: "KILLED (exit 124: the tests hung or
-// crashed)"). On Linux and macOS each runs under `timeout -k 10 600`, which ends its process
-// group. On Windows each runs in a Job Object of its own, or is ended with `taskkill /T /F` when
-// no job can be made. A process that leaves the group (`setsid`, a daemon) is not ended, and
-// while it holds the command's output open the run waits for it.
+// assemblers) still running after 600 s is ended, with the processes it started, and counts as
+// exit 124 (mutate: "KILLED (exit 124: the tests hung or crashed)"). On Linux and macOS each runs
+// under `timeout -k 10 600`: at the limit SIGTERM goes to the command's process group, and 10 s
+// later SIGKILL (exit 137). GNU coreutils sends that SIGKILL to the whole group; uutils coreutils
+// (Ubuntu 26.04's `/usr/bin/timeout`) sends it to the command's own process only, so there a
+// process the command started that ignores SIGTERM survives. On macOS the SIGTERM step was
+// measured to end the group (SKILL.md rule 4, 2026-11-15); its SIGKILL step was not checked.
+// On Windows each runs in a Job Object of its own, which ends every process in it, or is ended
+// with `taskkill /T /F` when no job can be made. A process that survives (it ignores SIGTERM under
+// uutils, or left the group with `setsid`) keeps the run waiting while it holds the command's
+// output open.
 //
 // Exit: 0 nothing flagged; 1 something flagged (rows to read, not automatically defects) or
 // something could not be run (a skipped cell, an untested mutant, a pause never reached);
@@ -121,7 +126,8 @@ const root_kinds = ['other_file', 'other_dir', 'other_link_to_file', 'other_link
 const outside = 'zz_outside'
 const other_uid = 65534
 // limit_secs bounds every command vprobe runs from a spec: `timeout` on Linux and macOS, a Job
-// Object on Windows (`run_limited`). A command ended by it reports exit 124 (or 137).
+// Object on Windows (`run_limited`). A command ended by it reports exit 124 (137 if `timeout`
+// had to send SIGKILL).
 const limit_secs = 600
 
 struct Mutant {
@@ -930,9 +936,11 @@ fn cmd_matrix(spec Spec, show_all bool) int {
 	return if flagged > 0 || skipped.len > 0 || control_problems > 0 { 1 } else { 0 }
 }
 
-// bounded wraps a command in `timeout`, which ends the command's process group (the command and
-// what it started) after `limit_secs`, with SIGKILL 10 s later if it is still there. On Windows
-// the command is returned as it is: `run_limited_windows` bounds it when it runs.
+// bounded wraps a command in `timeout`, which sends SIGTERM to the command's process group (the
+// command and what it started) after `limit_secs`, and SIGKILL 10 s later if the command is still
+// there: to the whole group with GNU coreutils, to the command's own process only with uutils
+// (see the header). On Windows the command is returned as it is: `run_limited_windows` bounds it
+// when it runs.
 fn bounded(cmd string) string {
 	$if windows {
 		return cmd
@@ -943,10 +951,11 @@ fn bounded(cmd string) string {
 
 // run_limited runs a command from the spec and returns its exit code and output. Every spec
 // command runs here, except `Ctx.run`'s, which carry the same `timeout` in their own line. One
-// still running after `limit_secs` is ended together with every process it started (`v` ->
+// still running after `limit_secs` is ended together with the processes it started (`v` ->
 // vtest -> the test program, a C compiler), and the result is exit 124 with the output so far
-// (137 when `timeout` had to kill it). On Linux and macOS that is `bounded`; on Windows a Job
-// Object (`run_limited_windows`).
+// (137 when `timeout` had to send SIGKILL). On Linux and macOS that is `bounded`, which can
+// leave a process that ignores SIGTERM (see the header); on Windows a Job Object
+// (`run_limited_windows`).
 fn run_limited(cmd string) os.Result {
 	$if windows {
 		return run_limited_windows(cmd, limit_secs * 1000)
