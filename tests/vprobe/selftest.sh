@@ -19,6 +19,13 @@ if ! "$V" -w -o "$tmp/vprobe" "$repo/probes/vprobe.v" > "$tmp/build.log" 2>&1; t
   exit 1
 fi
 P="$tmp/vprobe"
+# The same probe with a 3 s time limit, for the case of a test that never ends.
+sed 's/^const limit_secs = 600$/const limit_secs = 3/' "$repo/probes/vprobe.v" > "$tmp/vprobe_short.v"
+if ! grep -q '^const limit_secs = 3$' "$tmp/vprobe_short.v" ||
+  ! "$V" -w -o "$tmp/vprobe_short" "$tmp/vprobe_short.v" > "$tmp/build_short.log" 2>&1; then
+  echo "FAIL: cannot build probes/vprobe.v with a 3 s limit (is it still \`const limit_secs = 600\`?)"
+  exit 1
+fi
 fails=0
 cases=0
 
@@ -139,6 +146,38 @@ expect_exit hang 1 "$m/hang.out" $?
 has hang "$m/hang.out" 'times out\) \| KILLED \(exit 124'
 has hang "$m/hang.out" 'panics\) \| KILLED \(the tests crashed: V panic'
 has hang "$m/hang.out" 'only the red test\) \| \*\*SURVIVED\*\*'
+
+# A test that never ends is ended at the limit (3 s here), with the process it started, and is a
+# kill. The outer timeout keeps a probe without the limit from hanging the self-test.
+nap=$((70000 + $$ % 10000))
+cat > "$m/endless.sh" <<EOF
+if grep -q zz "$src"; then sh -c 'sleep $nap'; fi
+exit 0
+EOF
+echo a > "$src"
+echo '{"test": "sh '$m'/endless.sh", "mutants": [
+  {"file": "'$src'", "line": 1, "find": "a", "replace": "zz", "note": "never ends"}]}' > "$m/endless.json"
+start=$(date +%s)
+timeout -k 5 120 "$tmp/vprobe_short" mutate "$m/endless.json" > "$m/endless.out" 2>&1
+expect_exit endless 0 "$m/endless.out" $?
+has endless "$m/endless.out" 'never ends\) \| KILLED \(exit 124'
+took=$(($(date +%s) - start))
+cases=$((cases + 1))
+if [ "$took" -ge 30 ]; then
+  echo "FAIL endless: took ${took} s with a 3 s limit"
+  fails=$((fails + 1))
+fi
+cases=$((cases + 1))
+if pgrep -f "^sleep $nap\$" > /dev/null; then
+  echo "FAIL endless: sleep $nap, started by the test, is still running"
+  pkill -f "^sleep $nap\$"
+  fails=$((fails + 1))
+fi
+same_file endless "$src" a
+# A probe that was itself stopped leaves the file mutated and its backup: undo both, so the cases
+# below do not fail for that.
+echo a > "$src"
+rm -f "$src.vprobe-orig"
 
 # Tests that are red without a mutant stop the run, unless the spec allows judging by names.
 echo '{"test": "exit 1", "mutants": [{"file": "'$src'", "line": 1, "find": "a", "replace": "b"}]}' > "$m/red.json"

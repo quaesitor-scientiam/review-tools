@@ -97,13 +97,13 @@
 //                the run exits 1.
 //   assemblers [{name, cmd}], sequences, wrap, check, work   asm
 //
-// Time limit: a spec command still running after 600 s is ended, with every process it started,
-// and counts as exit 124 (mutate: "KILLED (exit 124: the tests hung or crashed)"). On Windows
-// this covers every spec command (cmd, prepare, setup, actor, in_pause, build, test, check, the
-// assemblers): each runs in a Job Object of its own, or is ended with `taskkill /T /F` when no
-// job can be made. On Linux and macOS `timeout 600` covers `prepare`, `setup`, `cmd`, `actor`
-// and `in_pause` only. The rest (`build` and `test` of race, mutate and trace, and asm's
-// commands) run as they are: give them their own `timeout -k 10 600`.
+// Time limit: every spec command (cmd, prepare, setup, actor, in_pause, build, test, check, the
+// assemblers) still running after 600 s is ended, with every process it started, and counts as
+// exit 124, or 137 when it had to be killed (mutate: "KILLED (exit 124: the tests hung or
+// crashed)"). On Linux and macOS each runs under `timeout -k 10 600`, which ends its process
+// group. On Windows each runs in a Job Object of its own, or is ended with `taskkill /T /F` when
+// no job can be made. A process that leaves the group (`setsid`, a daemon) is not ended, and
+// while it holds the command's output open the run waits for it.
 //
 // Exit: 0 nothing flagged; 1 something flagged (rows to read, not automatically defects) or
 // something could not be run (a skipped cell, an untested mutant, a pause never reached);
@@ -120,8 +120,8 @@ const root_kinds = ['other_file', 'other_dir', 'other_link_to_file', 'other_link
 	'root_dir']
 const outside = 'zz_outside'
 const other_uid = 65534
-// limit_secs bounds every command vprobe runs from a spec: `timeout 600` on Linux and macOS,
-// `run_limited` on Windows. A command ended by it reports exit 124.
+// limit_secs bounds every command vprobe runs from a spec: `timeout` on Linux and macOS, a Job
+// Object on Windows (`run_limited`). A command ended by it reports exit 124 (or 137).
 const limit_secs = 600
 
 struct Mutant {
@@ -399,9 +399,9 @@ fn (c Ctx) run(account string, cmd string, tag string) os.Result {
 		}
 		os.chmod(script, 0o755) or {}
 		if c.root_mode && account == 'user' {
-			return os.execute('timeout ${limit_secs} setpriv --reuid=${c.uid} --regid=${c.gid} --init-groups sh ${quoted(script)}')
+			return os.execute('timeout -k 10 ${limit_secs} setpriv --reuid=${c.uid} --regid=${c.gid} --init-groups sh ${quoted(script)}')
 		}
-		return os.execute('timeout ${limit_secs} sh ${quoted(script)}')
+		return os.execute('timeout -k 10 ${limit_secs} sh ${quoted(script)}')
 	}
 }
 
@@ -930,27 +930,28 @@ fn cmd_matrix(spec Spec, show_all bool) int {
 	return if flagged > 0 || skipped.len > 0 || control_problems > 0 { 1 } else { 0 }
 }
 
-// bounded wraps a command so that one that never returns cannot hang the probe. On Windows the
-// command is returned as it is: `run_limited` bounds it when it runs.
+// bounded wraps a command in `timeout`, which ends the command's process group (the command and
+// what it started) after `limit_secs`, with SIGKILL 10 s later if it is still there. On Windows
+// the command is returned as it is: `run_limited_windows` bounds it when it runs.
 fn bounded(cmd string) string {
 	$if windows {
 		return cmd
 	} $else {
-		return 'timeout ${limit_secs} sh -c ${quoted(cmd)}'
+		return 'timeout -k 10 ${limit_secs} sh -c ${quoted(cmd)}'
 	}
 }
 
-// run_limited runs a command from the spec and returns its exit code and output. Elsewhere it is
-// `os.execute`: the commands that need a limit there carry `timeout 600` in their own line
-// (`bounded`, `Ctx.run`, the race line), and the rest are run as they were. On Windows every spec
-// command runs here, under the limit: one still running after `limit_secs` is ended together
-// with every process it started (`v` -> vtest.exe -> the `*_test.exe`, a C compiler), and the
-// result is exit 124 with the output so far, what `timeout` reports.
+// run_limited runs a command from the spec and returns its exit code and output. Every spec
+// command runs here, except `Ctx.run`'s, which carry the same `timeout` in their own line. One
+// still running after `limit_secs` is ended together with every process it started (`v` ->
+// vtest -> the test program, a C compiler), and the result is exit 124 with the output so far
+// (137 when `timeout` had to kill it). On Linux and macOS that is `bounded`; on Windows a Job
+// Object (`run_limited_windows`).
 fn run_limited(cmd string) os.Result {
 	$if windows {
 		return run_limited_windows(cmd, limit_secs * 1000)
 	} $else {
-		return os.execute(cmd)
+		return os.execute(bounded(cmd))
 	}
 }
 
@@ -1368,10 +1369,11 @@ fn cmd_race(spec Spec) int {
 		$if !windows {
 			os.write_file(c.script_for('race'), '#!/bin/sh\n${command}\n') or {}
 		}
+		// `run_limited` puts the limit around it.
 		line := $if windows {
 			command
 		} $else {
-			'timeout ${limit_secs} sh ${quoted(c.script_for('race'))}'
+			'sh ${quoted(c.script_for('race'))}'
 		}
 		// One copy alone, with nothing happening in the pause.
 		os.rm(at) or {}
@@ -1405,11 +1407,10 @@ fn cmd_race(spec Spec) int {
 			os.rm(go_on) or {}
 			mut actors := []thread ActorRuns{}
 			if spec.actor != '' {
-				actors << spawn act(bounded(c.expand(spec.actor, bin)), stop)
+				actors << spawn act(c.expand(spec.actor, bin), stop)
 			}
 			if spec.in_pause != '' {
-				actors << spawn act_in_pause(bounded(c.expand(spec.in_pause, bin)), at,
-					go_on, stop)
+				actors << spawn act_in_pause(c.expand(spec.in_pause, bin), at, go_on, stop)
 			}
 			mut threads := []thread os.Result{}
 			for _ in 0 .. copies {

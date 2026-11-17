@@ -153,9 +153,9 @@ memory, because memory does not sync.
    a killed test exits (`should_retry_execution`, `cmd/tools/testing/common_test.v`). Missed on
    graphify branch `body-type-refs` (2026-11-16): a `vprobe mutate` mutant that made a loop
    endless stalled the run for about 3 hours, and after `graphify_test.exe` was killed twice by
-   hand, vprobe counted it as "KILLED (exit 1, no test named)". On Linux and macOS, vprobe's
-   `timeout 600` covers `prepare`, `setup`, `cmd`, `actor` and `in_pause` only, so a `build` or
-   `test` of race, mutate or trace needs its own `timeout -k 10 600` in the spec.
+   hand, vprobe counted it as "KILLED (exit 1, no test named)". On Linux and macOS vprobe runs
+   every spec command under `timeout -k 10 600`, mutate's and trace's `test` and `build`
+   included; until 2026-11-17 those two ran with no limit there.
 
 ## Plugin paths
 This skill ships in the `review-tools` plugin (git repo, installed at user scope).
