@@ -10,6 +10,7 @@
 //   v -w run probes/vprobe.v trace  <spec.json>
 //   v -w run probes/vprobe.v siblings <spec.json>
 //   v -w run probes/vprobe.v asm    <spec.json>
+// The Windows time limit has its own tests, run on Windows: v test probes/vprobe_windows_test.v
 //
 // matrix: runs `cmd` once per (place, kind of object, account) with the base build and with the
 //   head build, each time over a fresh copy of the same tree, and prints the cells where the two
