@@ -96,6 +96,14 @@
 //                the run exits 1.
 //   assemblers [{name, cmd}], sequences, wrap, check, work   asm
 //
+// Time limit: a spec command still running after 600 s is ended, with every process it started,
+// and counts as exit 124 (mutate: "KILLED (exit 124: the tests hung or crashed)"). On Windows
+// this covers every spec command (cmd, prepare, setup, actor, in_pause, build, test, check, the
+// assemblers): each runs in a Job Object of its own, or is ended with `taskkill /T /F` when no
+// job can be made. On Linux and macOS `timeout 600` covers `prepare`, `setup`, `cmd`, `actor`
+// and `in_pause` only. The rest (`build` and `test` of race, mutate and trace, and asm's
+// commands) run as they are: give them their own `timeout -k 10 600`.
+//
 // Exit: 0 nothing flagged; 1 something flagged (rows to read, not automatically defects) or
 // something could not be run (a skipped cell, an untested mutant, a pause never reached);
 // 2 usage or environment errors.
@@ -111,6 +119,9 @@ const root_kinds = ['other_file', 'other_dir', 'other_link_to_file', 'other_link
 	'root_dir']
 const outside = 'zz_outside'
 const other_uid = 65534
+// limit_secs bounds every command vprobe runs from a spec: `timeout 600` on Linux and macOS,
+// `run_limited` on Windows. A command ended by it reports exit 124.
+const limit_secs = 600
 
 struct Mutant {
 	file    string
@@ -376,7 +387,7 @@ fn (c Ctx) script_for(tag string) string {
 // run runs `cmd` as `account` and returns its exit code and output. On Windows there is one account.
 fn (c Ctx) run(account string, cmd string, tag string) os.Result {
 	$if windows {
-		return os.execute(cmd)
+		return run_limited(cmd)
 	} $else {
 		script := c.script_for(tag)
 		os.write_file(script, '#!/bin/sh\n${cmd}\n') or {
@@ -387,9 +398,9 @@ fn (c Ctx) run(account string, cmd string, tag string) os.Result {
 		}
 		os.chmod(script, 0o755) or {}
 		if c.root_mode && account == 'user' {
-			return os.execute('timeout 600 setpriv --reuid=${c.uid} --regid=${c.gid} --init-groups sh ${quoted(script)}')
+			return os.execute('timeout ${limit_secs} setpriv --reuid=${c.uid} --regid=${c.gid} --init-groups sh ${quoted(script)}')
 		}
-		return os.execute('timeout 600 sh ${quoted(script)}')
+		return os.execute('timeout ${limit_secs} sh ${quoted(script)}')
 	}
 }
 
@@ -918,17 +929,296 @@ fn cmd_matrix(spec Spec, show_all bool) int {
 	return if flagged > 0 || skipped.len > 0 || control_problems > 0 { 1 } else { 0 }
 }
 
-// bounded wraps a command so that one that never returns cannot hang the probe.
+// bounded wraps a command so that one that never returns cannot hang the probe. On Windows the
+// command is returned as it is: `run_limited` bounds it when it runs.
 fn bounded(cmd string) string {
 	$if windows {
 		return cmd
 	} $else {
-		return 'timeout 600 sh -c ${quoted(cmd)}'
+		return 'timeout ${limit_secs} sh -c ${quoted(cmd)}'
+	}
+}
+
+// run_limited runs a command from the spec and returns its exit code and output. Elsewhere it is
+// `os.execute`: the commands that need a limit there carry `timeout 600` in their own line
+// (`bounded`, `Ctx.run`, the race line), and the rest are run as they were. On Windows every spec
+// command runs here, under the limit: one still running after `limit_secs` is ended together
+// with every process it started (`v` -> vtest.exe -> the `*_test.exe`, a C compiler), and the
+// result is exit 124 with the output so far, what `timeout` reports.
+fn run_limited(cmd string) os.Result {
+	$if windows {
+		return run_limited_windows(cmd, limit_secs * 1000)
+	} $else {
+		return os.execute(cmd)
 	}
 }
 
 fn exec_one(cmd string) os.Result {
-	return os.execute(cmd)
+	return run_limited(cmd)
+}
+
+// The parts of the Job Object API `run_limited_windows` uses. The job functions are looked up in
+// kernel32 when vprobe runs: tcc, which `v run` uses by default, does not link them. The structs
+// mirror the C layout (JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+// JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, STARTUPINFOW, PROCESS_INFORMATION) field for field.
+fn C.ResumeThread(voidptr) u32
+
+// The functions return a Win32 BOOL, an int that is non-zero on success.
+type CreateJobFn = fn (voidptr, voidptr) voidptr
+
+type SetJobFn = fn (voidptr, int, voidptr, u32) int
+
+type AssignJobFn = fn (voidptr, voidptr) int
+
+type TerminateJobFn = fn (voidptr, u32) int
+
+type QueryJobFn = fn (voidptr, int, voidptr, u32, voidptr) int
+
+struct JobApi {
+	create    CreateJobFn    = unsafe { nil }
+	set       SetJobFn       = unsafe { nil }
+	assign    AssignJobFn    = unsafe { nil }
+	terminate TerminateJobFn = unsafe { nil }
+	query     QueryJobFn     = unsafe { nil }
+}
+
+fn kernel32(name &char) voidptr {
+	$if windows {
+		return C.GetProcAddress(C.GetModuleHandleA(c'kernel32.dll'), name)
+	} $else {
+		return unsafe { nil }
+	}
+}
+
+// job_api returns the job functions, or none when one of them is missing.
+fn job_api() ?JobApi {
+	create := kernel32(c'CreateJobObjectW')
+	set := kernel32(c'SetInformationJobObject')
+	assign := kernel32(c'AssignProcessToJobObject')
+	terminate := kernel32(c'TerminateJobObject')
+	query := kernel32(c'QueryInformationJobObject')
+	if create == unsafe { nil } || set == unsafe { nil } || assign == unsafe { nil }
+		|| terminate == unsafe { nil } || query == unsafe { nil } {
+		return none
+	}
+	return JobApi{
+		create:    unsafe { CreateJobFn(create) }
+		set:       unsafe { SetJobFn(set) }
+		assign:    unsafe { AssignJobFn(assign) }
+		terminate: unsafe { TerminateJobFn(terminate) }
+		query:     unsafe { QueryJobFn(query) }
+	}
+}
+
+// The SIZE_T and ULONG_PTR fields are pointer-sized, so they are written as voidptr.
+struct JobLimits {
+mut:
+	per_process_user_time_limit i64
+	per_job_user_time_limit     i64
+	limit_flags                 u32
+	minimum_working_set_size    voidptr
+	maximum_working_set_size    voidptr
+	active_process_limit        u32
+	affinity                    voidptr
+	priority_class              u32
+	scheduling_class            u32
+	io_counters                 [6]u64
+	process_memory_limit        voidptr
+	job_memory_limit            voidptr
+	peak_process_memory_used    voidptr
+	peak_job_memory_used        voidptr
+}
+
+struct JobAccounting {
+	total_user_time            i64
+	total_kernel_time          i64
+	this_period_user_time      i64
+	this_period_kernel_time    i64
+	total_page_fault_count     u32
+	total_processes            u32
+	active_processes           u32
+	total_terminated_processes u32
+}
+
+struct WinStartup {
+mut:
+	cb                 u32
+	lp_reserved        voidptr
+	lp_desktop         voidptr
+	lp_title           voidptr
+	dw_x               u32
+	dw_y               u32
+	dw_x_size          u32
+	dw_y_size          u32
+	dw_x_count_chars   u32
+	dw_y_count_chars   u32
+	dw_fill_attributes u32
+	dw_flags           u32
+	w_show_window      u16
+	cb_reserved2       u16
+	lp_reserved2       voidptr
+	h_std_input        voidptr
+	h_std_output       voidptr
+	h_std_error        voidptr
+}
+
+struct WinProcess {
+mut:
+	h_process     voidptr
+	h_thread      voidptr
+	dw_process_id u32
+	dw_thread_id  u32
+}
+
+struct WinSecurity {
+mut:
+	n_length               u32
+	lp_security_descriptor voidptr
+	b_inherit_handle       bool
+}
+
+// read_pipe reads `handle` until every process holding its other end has exited or been ended.
+fn read_pipe(handle voidptr) string {
+	$if windows {
+		mut out := []u8{}
+		mut buf := []u8{len: 4096}
+		for {
+			mut got := u32(0)
+			ok := C.ReadFile(handle, buf.data, u32(buf.len), voidptr(&got), unsafe { nil })
+			if !ok || got == 0 {
+				break
+			}
+			out << buf[..int(got)]
+		}
+		return out.bytestr()
+	} $else {
+		return ''
+	}
+}
+
+// job_active is the number of processes still running in `job`, or -1 when it cannot be read.
+fn job_active(api JobApi, job voidptr) int {
+	mut acct := JobAccounting{}
+	// 1: JobObjectBasicAccountingInformation
+	if api.query(job, 1, voidptr(&acct), u32(sizeof(JobAccounting)), unsafe { nil }) != 0 {
+		return int(acct.active_processes)
+	}
+	return -1
+}
+
+// run_limited_windows runs `cmd` as `os.execute` does (`cmd /s /c "..."`, stdout and stderr in one
+// pipe, `./` read as `.\`), inside a Job Object of its own, so everything the command starts is
+// in the job. The run ends when no process of the job is left, as `os.execute` ends when nobody
+// holds the pipe. After `limit_ms` the whole job is ended and the result is exit 124. The job
+// also ends everything in it if vprobe itself dies. If the job cannot take the process (an old
+// Windows, or a parent job that forbids it), the tree is ended with `taskkill /T /F` instead, and
+// a process that left the tree while holding the pipe keeps the run waiting until it exits.
+// It runs `&&` and `||`, which some V builds' `os.execute` refuses, and it does not decode UTF-16
+// output as `os.execute` does.
+fn run_limited_windows(cmd string, limit_ms int) os.Result {
+	$if windows {
+		mut sa := WinSecurity{
+			n_length:         u32(sizeof(WinSecurity))
+			b_inherit_handle: true
+		}
+		mut rd := unsafe { nil }
+		mut wr := unsafe { nil }
+		if !C.CreatePipe(voidptr(&rd), voidptr(&wr), voidptr(&sa), 0) {
+			return os.Result{
+				exit_code: int(C.GetLastError())
+				output:    'vprobe: CreatePipe failed'
+			}
+		}
+		C.SetHandleInformation(rd, C.HANDLE_FLAG_INHERIT, 0)
+		api := job_api() or { JobApi{} }
+		mut job := unsafe { nil }
+		if api.create != unsafe { nil } {
+			job = api.create(unsafe { nil }, unsafe { nil })
+		}
+		if job != unsafe { nil } {
+			mut limits := JobLimits{
+				limit_flags: 0x2000 // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+			}
+			// 9: JobObjectExtendedLimitInformation
+			api.set(job, 9, voidptr(&limits), u32(sizeof(JobLimits)))
+		}
+		mut si := WinStartup{
+			cb:           u32(sizeof(WinStartup))
+			dw_flags:     u32(C.STARTF_USESTDHANDLES)
+			h_std_output: wr
+			h_std_error:  wr
+		}
+		mut pi := WinProcess{}
+		line := 'cmd /s /c "${cmd.replace('./', '.\\')}"'
+		mut expanded := []u16{len: 32768}
+		C.ExpandEnvironmentStringsW(line.to_wide(), expanded.data, 32768)
+		// 0x4: CREATE_SUSPENDED, so the job holds the process before it can start anything.
+		created := C.CreateProcessW(unsafe { nil }, expanded.data, unsafe { nil }, unsafe { nil },
+			true, u32(C.CREATE_NO_WINDOW) | 0x4, unsafe { nil }, unsafe { nil }, voidptr(&si),
+			voidptr(&pi))
+		C.CloseHandle(wr)
+		if !created {
+			code := int(C.GetLastError())
+			C.CloseHandle(rd)
+			if job != unsafe { nil } {
+				C.CloseHandle(job)
+			}
+			return os.Result{
+				exit_code: code
+				output:    'vprobe: CreateProcess failed (${code}): ${cmd}'
+			}
+		}
+		in_job := job != unsafe { nil } && api.assign(job, pi.h_process) != 0
+		C.ResumeThread(pi.h_thread)
+		reader := spawn read_pipe(rd)
+		watch := time.new_stopwatch()
+		mut timed_out := false
+		for {
+			// 0: WAIT_OBJECT_0, the command's own process has exited.
+			exited := C.WaitForSingleObject(pi.h_process, 20) == 0
+			active := if in_job { job_active(api, job) } else { -1 }
+			done := if active >= 0 { active == 0 } else { exited }
+			if done {
+				break
+			}
+			if watch.elapsed().milliseconds() >= limit_ms {
+				timed_out = true
+				if in_job {
+					api.terminate(job, 124)
+				} else {
+					os.execute('taskkill /T /F /PID ${pi.dw_process_id}')
+				}
+				break
+			}
+			if exited {
+				// Processes it started are still running: wait for them, still under the limit.
+				time.sleep(10 * time.millisecond)
+			}
+		}
+		// The exit code is read once the process object says it has ended, not from the job's count.
+		C.WaitForSingleObject(pi.h_process, 10000)
+		output := reader.wait()
+		mut exit_code := u32(0)
+		C.GetExitCodeProcess(pi.h_process, voidptr(&exit_code))
+		C.CloseHandle(pi.h_process)
+		C.CloseHandle(pi.h_thread)
+		C.CloseHandle(rd)
+		if job != unsafe { nil } {
+			C.CloseHandle(job)
+		}
+		if timed_out {
+			return os.Result{
+				exit_code: 124
+				output:    output + '\nvprobe: ended after ${limit_ms / 1000} s, with every process it started\n'
+			}
+		}
+		return os.Result{
+			exit_code: int(i32(exit_code))
+			output:    output
+		}
+	} $else {
+		return os.execute(cmd)
+	}
 }
 
 struct ActorRuns {
@@ -943,7 +1233,7 @@ mut:
 fn act(cmd string, stop string) ActorRuns {
 	mut a := ActorRuns{}
 	for !os.exists(stop) {
-		res := os.execute(cmd)
+		res := run_limited(cmd)
 		a.runs++
 		if res.exit_code != 0 {
 			a.failed++
@@ -962,7 +1252,7 @@ fn act_in_pause(cmd string, at string, go_on string, stop string) ActorRuns {
 	for !os.exists(stop) {
 		if os.exists(at) {
 			a.reached = true
-			res := os.execute(cmd)
+			res := run_limited(cmd)
 			a.runs++
 			if res.exit_code != 0 {
 				a.failed++
@@ -1030,7 +1320,7 @@ fn build_with_edits(spec Spec, pause_code string) {
 	}
 	mut built := os.Result{}
 	if problem == '' {
-		built = os.execute(spec.build)
+		built = run_limited(spec.build)
 	}
 	for file, text in originals {
 		restore_file(file, text)
@@ -1080,12 +1370,12 @@ fn cmd_race(spec Spec) int {
 		line := $if windows {
 			command
 		} $else {
-			'timeout 600 sh ${quoted(c.script_for('race'))}'
+			'timeout ${limit_secs} sh ${quoted(c.script_for('race'))}'
 		}
 		// One copy alone, with nothing happening in the pause.
 		os.rm(at) or {}
 		os.write_file(go_on, '') or {}
-		single := os.execute(line)
+		single := run_limited(line)
 		mut alone := snapshot(c.root).keys()
 		alone.sort()
 		mut alone_lines := map[string]bool{}
@@ -1581,7 +1871,7 @@ fn crash_line(output string) string {
 // control_pass runs the unmutated tests once: the exit code, the failing names, the first line
 // and the crash line, if any.
 fn control_pass(test string, pattern string) (int, []string, string, string) {
-	res := os.execute(test)
+	res := run_limited(test)
 	return res.exit_code, signature(res.output, pattern), first_line(res.output), crash_line(res.output)
 }
 
@@ -1635,7 +1925,7 @@ fn cmd_mutate(given Spec, list_only bool) int {
 		}
 	}
 	if spec.build != '' {
-		b := os.execute(spec.build)
+		b := run_limited(spec.build)
 		if b.exit_code != 0 {
 			fail('the build command fails before any mutant: ${first_line(b.output)}')
 		}
@@ -1677,7 +1967,7 @@ fn cmd_mutate(given Spec, list_only bool) int {
 			fail('cannot write ${file}: ${err}')
 		}
 		if spec.build != '' {
-			os.execute(spec.build)
+			run_limited(spec.build)
 		}
 		_, names, _, _ := control_pass(spec.test, pattern)
 		os.write_file(file, original) or { fail('COULD NOT RESTORE ${file}: ${err}') }
@@ -1721,13 +2011,13 @@ fn cmd_mutate(given Spec, list_only bool) int {
 		os.write_file(m.file + '.vprobe-orig', original) or { fail('cannot write the backup: ${err}') }
 		os.write_file(m.file, lines.join('\n')) or { fail('cannot write ${m.file}: ${err}') }
 		if spec.build != '' {
-			b := os.execute(spec.build)
+			b := run_limited(spec.build)
 			if b.exit_code != 0 {
 				run.invalid = 'INVALID: does not build (${first_line(b.output)})'
 			}
 		}
 		if run.invalid == '' {
-			res := os.execute(spec.test)
+			res := run_limited(spec.test)
 			run.exit = res.exit_code
 			run.names = signature(res.output, pattern)
 			run.first = first_line(res.output)
@@ -1737,7 +2027,7 @@ fn cmd_mutate(given Spec, list_only bool) int {
 			} else if run.names.len > 0 && res.exit_code !in [124, 137, 139] {
 				// A kill is confirmed by a second run of the same mutant. A test that fails in only
 				// one of the two runs of the same code is flaky, and shows no kill anywhere.
-				again := os.execute(spec.test)
+				again := run_limited(spec.test)
 				names2 := signature(again.output, pattern)
 				unstable << minus(run.names, names2)
 				unstable << minus(names2, run.names)
@@ -1760,7 +2050,7 @@ fn cmd_mutate(given Spec, list_only bool) int {
 			// The source is restored, but the built program is still the mutant's: rebuild it, or
 			// this control tests the last mutant and counts its kills as failing controls.
 			if spec.build != '' {
-				b := os.execute(spec.build)
+				b := run_limited(spec.build)
 				if b.exit_code != 0 {
 					fail('the build command fails on the restored source: ${first_line(b.output)}')
 				}
@@ -1776,7 +2066,7 @@ fn cmd_mutate(given Spec, list_only bool) int {
 		}
 	}
 	if spec.build != '' {
-		os.execute(spec.build)
+		run_limited(spec.build)
 	}
 	mut ignored := spec.ignore_tests.clone()
 	mut flaky := []string{}
@@ -2185,7 +2475,7 @@ fn cmd_trace(spec Spec) int {
 	}
 	os.write_file(spec.source + '.vprobe-orig', original) or { fail('cannot write the backup: ${err}') }
 	os.write_file(spec.source, lines.join('\n')) or { fail('cannot write ${spec.source}: ${err}') }
-	res := os.execute(spec.test)
+	res := run_limited(spec.test)
 	restore_file(spec.source, original)
 	if spec.test_file != '' {
 		restore_file(spec.test_file, test_original)

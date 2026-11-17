@@ -147,6 +147,15 @@ memory, because memory does not sync.
    mutant loops; what started the other four was not found. Measured on macOS (2026-11-15):
    `/usr/bin/timeout` ends the whole process group, so `timeout sh -c './v test ...'` left
    nothing behind, while the same chain under Python left the grandchild running.
+   **On Windows the limit ends the whole tree too.** `vprobe` runs every spec command there in
+   a Job Object and ends it after 600 s (exit 124). A Windows harness that kills only the test
+   program is not enough: `v test` runs a test again when it exits 1 with no output, which is how
+   a killed test exits (`should_retry_execution`, `cmd/tools/testing/common_test.v`). Missed on
+   graphify branch `body-type-refs` (2026-11-16): a `vprobe mutate` mutant that made a loop
+   endless stalled the run for about 3 hours, and after `graphify_test.exe` was killed twice by
+   hand, vprobe counted it as "KILLED (exit 1, no test named)". On Linux and macOS, vprobe's
+   `timeout 600` covers `prepare`, `setup`, `cmd`, `actor` and `in_pause` only, so a `build` or
+   `test` of race, mutate or trace needs its own `timeout -k 10 600` in the spec.
 
 ## Plugin paths
 This skill ships in the `review-tools` plugin (git repo, installed at user scope).
