@@ -2,7 +2,7 @@
 Thumbs.db
 *.tmp
 /tests/_work/
-/detectors/*.exe
-/detectors/*.exe.manifest
+*.exe
+*.exe.manifest
 /detectors/.*.v3cc.*/
 /detectors/*.def
