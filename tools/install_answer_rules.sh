@@ -43,6 +43,14 @@ if [ -e "$target" ] && [ ! -f "$target" ]; then
   exit 1
 fi
 
+# A link another account made is refused before anything follows it, a new file included: a
+# dangling link would otherwise make the file wherever it points. `find` without -L reads the
+# link's own owner.
+if [ -L "$target" ] && [ -z "$(find "$target" -maxdepth 0 -user "$(id -u)" 2>/dev/null)" ]; then
+  echo "install_answer_rules: $target is a link that another account made; not followed" >&2
+  exit 1
+fi
+
 if [ -f "$target" ] && grep -qF "$mark" "$target"; then
   echo "already there: $target"
   exit 0
@@ -62,10 +70,6 @@ if [ ! -f "$target" ]; then
 fi
 
 # Nothing is written, a backup included, when the result could not be.
-if [ -L "$target" ] && [ -z "$(find "$target" -maxdepth 0 -user "$(id -u)" 2>/dev/null)" ]; then
-  echo "install_answer_rules: $target is a link that another account made; not followed" >&2
-  exit 1
-fi
 if [ ! -w "$target" ]; then
   echo "install_answer_rules: $target cannot be written by this account" >&2
   exit 1

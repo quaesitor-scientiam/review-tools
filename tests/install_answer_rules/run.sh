@@ -163,7 +163,29 @@ else
   mkdir -p "$work/p2"; cp "$work/before.md" "$work/p2/CLAUDE.md"; chown 65534 "$work/p2/CLAUDE.md"
   install p2 "$work/p2/CLAUDE.md"
   check "a plain file of another account that can be written gets the rules" "[ $rc -eq 0 ] && says p2 'added to ' && cmp -s \"$work/p2/CLAUDE.md\" \"$work/after.md\""
+  # A dangling link of another account: no file yet, so the create path is the one that runs.
+  mkdir -p "$work/p3"; ln -s "$work/p3/elsewhere.md" "$work/p3/CLAUDE.md"
+  chown -h 65534 "$work/p3/CLAUDE.md"
+  install p3 "$work/p3/CLAUDE.md"
+  check "a dangling link of another account is refused, and nothing is made where it points" "[ $rc -eq 1 ] && grep -q 'a link that another account made' \"$work/p3.out\" && [ ! -e \"$work/p3/elsewhere.md\" ]"
 fi
+# The same dangling link made by this account is followed, and the file is made where it points.
+echo "Q. a dangling link this account made"
+mkdir -p "$work/q"; ln -s "$work/q/elsewhere.md" "$work/q/CLAUDE.md"
+install q "$work/q/CLAUDE.md"
+check "the file is made where the link points, and the link stays" "[ $rc -eq 0 ] && says q 'created: ' && [ -L \"$work/q/CLAUDE.md\" ] && [ -f \"$work/q/elsewhere.md\" ]"
+
+# Case P needs root to make a link another account owns. Here the installer runs with an `id`
+# that reports another account's number, so this account's own links look like someone else's:
+# the owner check is reached on every path without root.
+echo "R. a link seen as another account's, without root"
+mkdir -p "$work/shim"; printf '#!/bin/sh\necho 65534\n' > "$work/shim/id"; chmod +x "$work/shim/id"
+mkdir -p "$work/r"; ln -s "$work/r/elsewhere.md" "$work/r/CLAUDE.md"
+PATH="$work/shim:$PATH" "$BASH" "$script" "$work/r/CLAUDE.md" > "$work/r.out" 2>&1; rc=$?
+check "a dangling link is refused before the file is made where it points" "[ $rc -eq 1 ] && grep -q 'a link that another account made' \"$work/r.out\" && [ ! -e \"$work/r/elsewhere.md\" ]"
+mkdir -p "$work/r2"; cp "$work/after.md" "$work/r2/real.md"; ln -s "$work/r2/real.md" "$work/r2/CLAUDE.md"
+PATH="$work/shim:$PATH" "$BASH" "$script" "$work/r2/CLAUDE.md" > "$work/r2.out" 2>&1; rc=$?
+check "a link to a file that already has the rules is refused too, not reported as there" "[ $rc -eq 1 ] && ! grep -q '^already there' \"$work/r2.out\""
 
 echo "failures: $fails"
 exit $fails
