@@ -74,3 +74,10 @@ root (another account's file, folder or link) are not run by it.
 Every case states the line the probe must print and its exit code, so a probe that gives the wrong
 verdict, or ends "nothing flagged" for something it did not run, fails. It needs a POSIX shell
 (Linux, WSL or macOS). It is separate from `run_fixtures.sh`, which covers the detectors only.
+
+## The answer-rules installer
+
+`tests/install_answer_rules/run.sh` runs `tools/install_answer_rules.sh` against scratch files, one
+case per kind of target (no file, an Answer Format section in each position and spelling, a
+format under another heading, a code fence, CRLF lines, a link, a folder), and compares each
+result byte for byte. It needs only bash and awk, and exits with the number of failing checks.
