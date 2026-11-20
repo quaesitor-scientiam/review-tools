@@ -50,7 +50,9 @@
 //   at the last reviewed revision). For every local function called near one site (`window`
 //   lines either side, default 12) that its function did not call at the base, it prints the
 //   sibling sites that do not reach it. A check added at one site and not at its twins shows as
-//   a row. `functions` limits the sites to those functions.
+//   a row. `functions` limits the sites to those functions. A marker written `a<or>b` takes a
+//   line with either text as a site: one situation that different functions reach through
+//   different calls (`is_dir(<or>kind_of_existing_path(` for "a look at a path").
 // asm: for code that predicts what an assembler does with a template. Each of `sequences` is
 //   statements separated by `;`, with `{a|b}` for a directive argument or a word to vary. Every
 //   choice and every split of the statements into lines (a gap is a new line or a space) becomes
@@ -82,8 +84,10 @@
 //   source, functions   mutate: also generate the mutants of these functions of `source`, one per
 //                clause of each `&&`/`||` condition, one per early-return guard, two per lone
 //                comparison that is stored or returned (always true, always false), and one per
-//                call of a local `fn name(x string) string` (the argument as it came), and two
-//                per `for x in items {` loop (it sees only the first item, only the last).
+//                call of a local `fn name(x string) string` (the argument as it came), two
+//                per `for x in items {` loop (it sees only the first item, only the last), and
+//                one per statement that only releases a resource (a close, a free, an unlock),
+//                with that statement dropped.
 //                `--list` prints them unrun.
 //   changed_from mutate: the same file at the revision the last mutation run covered (the merge
 //                base for the first run). Every function whose text differs is added to
@@ -1739,6 +1743,10 @@ fn loop_iterable(line string) ?string {
 		return none
 	}
 	at := code.index(' in ') or { return none }
+	if at + 4 > code.len - 2 {
+		// `for k, v in {`: the loop goes over a literal that starts on this line, nothing to cut.
+		return none
+	}
 	iterable := code[at + 4..code.len - 2].trim_space()
 	if iterable == '' || line.count(' in ${iterable} {') != 1 {
 		return none
@@ -1746,10 +1754,39 @@ fn loop_iterable(line string) ?string {
 	return iterable
 }
 
+// release_statement returns the statement on `line` when all it does is give a resource back: close
+// a handle, free memory, release a lock. Dropping it is a mutant no condition-based kind lists, and
+// a test that only compares results passes without it (vlang branch
+// os-walk-windows-reuse-find-attrs, adversarial round 1, 2026-11-20: a walk without its
+// `C.FindClose` passed every test).
+fn release_statement(line string) ?string {
+	code := line.trim_space()
+	if code.starts_with('//') {
+		return none
+	}
+	// The same statement inside a one-line `unsafe { ... }`.
+	inner := code.trim_string_left('unsafe { ').trim_string_right(' }')
+	// A call that is the whole statement: its opening parenthesis closes at the end of the line.
+	for start in ['C.FindClose(', 'C.CloseHandle(', 'C.fclose(', 'C.close(', 'C.closedir(', 'C.free(',
+		'C.LocalFree(', 'free('] {
+		if inner.starts_with(start) && matching_paren(inner, start.len - 1) == inner.len - 1 {
+			return code
+		}
+	}
+	// A method call on one name or field, with nothing before or after it.
+	for end in ['.close()', '.free()', '.unlock()', '.runlock()'] {
+		if inner.ends_with(end) && !inner.contains(' ') {
+			return code
+		}
+	}
+	return none
+}
+
 // generate_mutants lists, for the named functions of `path`, one mutant per clause of every
 // condition and one per guard that returns early, so a predicate's checks are covered in full;
-// both constant answers for every lone comparison that is stored or returned; and, for every call
-// of a local function that respells a string, the argument as it came.
+// both constant answers for every lone comparison that is stored or returned; for every call
+// of a local function that respells a string, the argument as it came; and one per statement
+// that only releases a resource, with that statement dropped.
 fn generate_mutants(path string, names []string) []Mutant {
 	text := os.read_file(path) or {
 		fail('cannot read ${path}: ${err}')
@@ -1805,6 +1842,17 @@ fn generate_mutants(path string, names []string) []Mutant {
 		}
 		if code.starts_with('//') {
 			continue
+		}
+		if release := release_statement(line) {
+			if line.count(release) == 1 {
+				out << Mutant{
+					file:    path
+					line:    i + 1
+					find:    release
+					replace: ''
+					note:    '${current}: the release is dropped'
+				}
+			}
 		}
 		if drops.len == 0 {
 			if expr := lone_comparison(line) {
@@ -2705,7 +2753,12 @@ fn cmd_siblings(spec Spec) int {
 				if lines[i].trim_space().starts_with('//') {
 					continue
 				}
-				found := if auto { calls_name(lines[i], marker) } else { lines[i].contains(marker) }
+				// `a<or>b` names one situation that the code reaches through different calls.
+				found := if auto {
+					calls_name(lines[i], marker)
+				} else {
+					marker.split('<or>').any(it != '' && lines[i].contains(it))
+				}
 				if !found {
 					continue
 				}
@@ -2846,6 +2899,12 @@ fn check_dispositions(path string, survivors map[int]Mutant) int {
 				}
 			}
 			'equivalent' {
+				if m.note.ends_with(': the release is dropped') {
+					// Nothing makes a release redundant: without it the program holds more over time.
+					println('${path}:${n + 1}: ${id} is `equivalent`, but a dropped release is never equivalent: file it as finding or limit')
+					bad++
+					continue
+				}
 				source := os.read_lines(m.file) or { []string{} }
 				mut found := false
 				parts := reason.split('`')

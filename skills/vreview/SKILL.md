@@ -162,6 +162,42 @@ memory, because memory does not sync.
    running (GNU's `gnutimeout` ends it). A test whose processes ignore SIGTERM can therefore still
    hang a vprobe run on that system: wrap such a test in a shorter GNU limit in the spec
    (`gnutimeout -k 10 580 v test ...`), which ends the whole group before vprobe's own limit.
+5. **A doubt you wrote down is a row to run, not a disclosure (rev 113).** Naming a weakness
+   does not settle it. Before a pass is reported, go through everything you wrote in this
+   session that says a case is untested, not covered, "not run", "a limit", "only costs X",
+   or "cannot be told apart": the skipped-areas list, every limit disposition, and any
+   self-review or caveat list in your own answers, earlier turns included. Each such sentence
+   gets one of two things, written beside it: the command run in this pass and its result on
+   base and on head, or a question put to the user. "No change" after a list of doubts that a
+   command here could settle is a skipped step under hard rule 2.
+   - **"Only costs X" is a claim about every cause.** A fallback, retry or default that fires
+     on a failure fires on every cause of that failure. List the causes (not found, access
+     denied, too long, a name the system reads differently) and run each: compare the object
+     the fallback then acts on with the object the first attempt looked at. Cost is the
+     answer only when they are the same object for every cause.
+   - **A row whose two outcomes print the same thing measures nothing.** In a probe or
+     fixture, every object says where it came from: a file name or content that differs per
+     folder, per twin, per branch. If you find yourself noting that two results look alike
+     and cannot be told apart, the fixture is wrong: change it before the row counts.
+   - **A kill belongs to the test written for that line.** For each test added for a case,
+     find the mutant of that case's branch in the mutation log and read the name of the test
+     that killed it. A new test that is the killer of no mutant tests nothing; a branch whose
+     mutants are all killed by a test of another case is a GAP, not coverage.
+   - **Behaviour added during the loop restarts Phase 0 for it.** A fallback, retry or mode
+     added in answer to a finding or to a question from the user is new code: it gets its own
+     contract, its sibling rows, and the enumeration of Angle A's "one spelling" bullet or
+     Angle K, before the next pass. When the request can be read as "check that X works" or
+     as "make X work", ask which, and state what the second one adds.
+
+   Why: on vlang branch `os-walk-windows-reuse-find-attrs` (adversarial round 1, 2026-11-20,
+   12 of 12 confirmed, all unanimous) the inline passes had already written down most of what
+   the agents then found. The author's own review lists said the retry "fires on any listing
+   failure" and filed it under cost, that "drive-relative forms were not tested", and that
+   "the retry path is not covered by the test here"; a probe with twin folders `twin` and
+   `twin.` gave both the same file name, and its identical output was recorded as "same on
+   both". Each list ended in "No change". Run afterwards from these same rules, the rows
+   reproduced ten of the twelve findings in minutes; one of them is a walk that lists through
+   a planted junction with no race, which base did not do.
 
 ## Plugin paths
 This skill ships in the `review-tools` plugin (git repo, installed at user scope).
@@ -504,6 +540,18 @@ does. Standard and Lite keep the per-angle cap and normal N/A discretion.
    test compared locations where its twin compared real paths too; and one branch of
    `wipe_folder_around_tool_roots` dropped `recreate`. The probe's rows for that diff hold the
    first two.
+   **One situation, several calls: group the markers (rev 113).** Sites of one situation do
+   not always share a text. A walk's root is looked at with `is_dir(`, an entry below it with
+   `kind_of_existing_path(`, and a probe run with either marker alone finds one site and
+   compares nothing. Write the alternatives as one marker, `a<or>b`
+   (`is_dir(<or>kind_of_existing_path(`), and list in the artifact which calls you grouped
+   and why they are the same look. When a marker reports "one site only", that is a prompt
+   to ask what else takes the same look under another name, not a clean row. Missed on vlang
+   branch `os-walk-windows-reuse-find-attrs` (adversarial round 1, 2026-11-20): the retry
+   under the `\\?\` spelling was added where an entry is looked at and where it is listed,
+   and not where the root is looked at, so a folder that the walk listed from its parent
+   gave nothing when it was the root. The probe printed 0 rows for it until the two looks
+   were one marker.
 
    **Artifact: sibling parity table.** One row per new type/function/branch
    checked against a sibling, six columns:
@@ -576,6 +624,7 @@ recall-driven failure mode this skill has repeatedly found unreliable.
 - [ ] Probe runs (hard rule 4, rev 107): <`vprobe` matrix / race / mutate: command, exit code, flagged rows, each row's disposition> (or "N/A — the diff has nothing a command can run", or "not run — reason, and the user's answer")
 - [ ] Probe inputs added this round (hard rule 4, rev 110): <per spec: the rows added for this round's new sentences, decisions and pairs of them; every setting's own path as a `named` row; the setting relations and process states run> (or "none — reason")
 - [ ] Sibling sites (Phase 0 step 7, rev 110): <`vprobe siblings` command, markers, each "NOT in" row with its answer; per function that takes a flag, each exit path and where the flag is honoured> (or "N/A — the diff adds no check at a site of a shared situation")
+- [ ] Written doubts (hard rule 5, rev 113): <each sentence of yours in this session that calls a case untested, a limit, "only costs X" or "not run": the command run for it this pass and its result on base and head, or the question asked> (or "none written")
 - [ ] Model ledger (Angle K): <one row per function that models another tool: rounds with confirmed findings, added/removed clauses; two in a row means ask the allow-list question before fixing> (or "no model of another tool in this diff")
 - [ ] Accepted-vocabulary inventory (Angle K): <n entries, from which old-code lists> (or "no new or widened rejection in this diff")
 - [ ] Reference-grammar trace (Angle K, rev 101): <reference function and its full line range, one row per consuming branch with adjacency and nesting probe results, plus the caller's line range and a leftover row per token class (rev 104)> (or "no model of another tool's grammar in this diff")
@@ -904,6 +953,27 @@ platform makes this wrong?
   and inode), or take the safe path when the strings disagree. Missed on vlang/v#31848
   (adversarial round 1): a root recorded as `/mnt/s/Foo/...` was missed by a lookup of
   `/mnt/s/foo/...`, and the wipe deleted it with its live build.
+- **A look and the act it guards use one spelling (rev 113).** When code can reach an object
+  under two spellings (a plain Windows path and its `\\?\` form, a link and its target, a
+  relative and an absolute path), the spelling that was checked is the spelling that is acted
+  on. A retry under the other spelling repeats every check under that spelling first, and
+  fires only for the cause it was written for (read the error code; "the call failed" is a
+  proxy). Take the list of what the two spellings read differently from the system's own
+  documentation, not from memory, and give each a base-vs-head row. For Windows paths: a name
+  ending in a dot or a space; twins that differ only by that ending (`foo` and `foo.`), with
+  different contents; a DOS device name (`NUL`, `CON`, `AUX`, `COM1`, with and without an
+  extension); a drive-relative path (`C:x`); a rooted path with no drive (`\x`); a UNC path,
+  also with `.` or `..` in it; forward slashes; a relative path while the current folder is a
+  UNC or `\\?\` path; and the same object as the root of the operation and as an entry below
+  it. Create such objects through the `\\?\` form with an API that takes it literally
+  (`New-Item`, `CreateFileW`): `mklink` and `mkdir` with a nested path normalise the name and
+  put the object somewhere else. Missed on vlang branch `os-walk-windows-reuse-find-attrs`
+  (adversarial round 1, 2026-11-20, 9 of 12 findings): the walk looked at `t\foo.\sub` under
+  the plain spelling, which Windows reads as `t\foo\sub`, and after any listing failure listed
+  `\\?\...\t\foo.\sub`, another folder. With `foo\sub` made unlistable and `foo.\sub` a
+  junction, the walk reported the junction's target. The prefix was also built wrong for
+  `\x`, `C:x`, a UNC path with `..` and a UNC current folder, a folder named `NUL` changed
+  behaviour unannounced, and the root itself got no retry.
 - **A new rule must not overwrite something more precise.** For each new line
   that replaces a value, type or state, ask what it holds before that line, for
   every input and not just the motivating one. If it can already be more exact
@@ -2979,6 +3049,12 @@ adds or changes:
   pullrequestreview-5759552885, P3): the collision test asserted `i64` for
   `int`, true on the 64-bit host and false on linux/x86; it now reads
   `fastc_output_c_type('int')`, with a generate-only linux/x86 case.
+  **The current folder is a configuration too (rev 113).** A test whose expected value is
+  built from `os.getwd()`, the temp folder or the home folder is run once more from a folder
+  of another shape: a drive root (`S:\`, where the path already ends in a separator), a UNC
+  path, a path with a space. Missed on vlang branch `os-walk-windows-reuse-find-attrs`
+  (adversarial round 1, 2026-11-20): a unit test built `\\?\` + `getwd()` + `\a\b` and failed
+  when started from a drive root, with the code under test correct.
 
 - **Compare base and head on variations, not only your own tests.** For a change
   to what a program's input yields (a resolver, extractor, generator or parser),
@@ -3371,6 +3447,16 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   and observe the hold from another process on each. Missed on vlang/v#31848 (adversarial
   round 7): the test wrote the lock file before the wipe, so a `claim()` that makes the file
   and never locks it passed all 116 tests.
+- **Every release is a mutant (rev 113).** `vprobe mutate` now generates one mutant per
+  statement of a changed function that only gives a resource back (`C.FindClose(h)`,
+  `C.CloseHandle(h)`, `free(p)`, `f.close()`, `mu.unlock()`), with that statement dropped. A
+  test that compares results passes without the release, so a survivor here is the normal
+  case and needs a decision: a test that observes the resource (the process's handle count
+  before and after many runs, a second open that must succeed, a lock another thread must
+  get), or a limit written beside the row. Do not file it as equivalent: a leak changes what
+  the program does over time, and the probe refuses that kind for a dropped release. Missed on vlang branch `os-walk-windows-reuse-find-attrs`
+  (adversarial round 1, 2026-11-20): the walk without its `C.FindClose` passed every test,
+  and the generated list had no mutant for it because a release is not a condition.
 - **Every input advance is a mutant (rev 104).** In code that scans or parses, delete each
   statement the diff adds that moves the input on (`tok = scan.scan()`, `p.next()`, a
   `lookahead.scan()` whose result is kept), one mutant each. A dropped advance is the commonest
@@ -3878,6 +3964,9 @@ Probe inputs added this round (hard rule 4, rev 110):
 
 Sibling sites (Phase 0 step 7, rev 110):
 <`vprobe siblings` command and markers — each "NOT in" row: not needed there (why, file:line) / finding; per function that takes a flag: exit path — where the flag is honoured> (or "N/A — the diff adds no check at a site of a shared situation")
+
+Written doubts (hard rule 5, rev 113):
+<your sentence — the command run for it this pass and its result on base and head, or the question asked> (or "none written")
 
 Model ledger (Angle K):
 <function — rounds with confirmed findings — clauses added/removed — allow-list question asked?> (or "no model of another tool in this diff")
