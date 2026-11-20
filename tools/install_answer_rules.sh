@@ -35,6 +35,14 @@ for f in "$rules" "$format"; do
   [ -f "$f" ] || { echo "install_answer_rules: missing $f" >&2; exit 2; }
 done
 
+# A folder or other non-file at the target is refused before anything is written. Every write
+# below also ends in `|| exit 1`: bash 3.2 (macOS's /bin/bash) does not stop under `set -e` when
+# the redirection of a `{ ... }` group fails, so it went on to print "created".
+if [ -e "$target" ] && [ ! -f "$target" ]; then
+  echo "install_answer_rules: $target is not a regular file" >&2
+  exit 1
+fi
+
 if [ -f "$target" ] && grep -qF "$mark" "$target"; then
   echo "already there: $target"
   exit 0
@@ -48,7 +56,7 @@ if [ ! -f "$target" ]; then
     cat "$format"
     printf '\n'
     cat "$rules"
-  } > "$target"
+  } > "$target" || exit 1
   echo "created: $target"
   exit 0
 fi
@@ -94,14 +102,14 @@ if [ "$has_section" = 1 ]; then
     in_format && lv > 0 && lv <= format_level { emit(); print ""; in_format = 0; done = 1 }
     { print }
     END { if (in_format) { print ""; emit() } }
-  ' "$backup" > "$target"
+  ' "$backup" > "$target" || exit 1
   echo "added to the Answer Format section of $target (backup: $backup)"
 elif grep -qi 'skeptical review' "$backup"; then
   {
     cat "$backup"
     printf '\n'
     cat "$rules"
-  } > "$target"
+  } > "$target" || exit 1
   echo "appended the rules to $target, which has the format under another heading (backup: $backup)"
 else
   {
@@ -110,6 +118,6 @@ else
     cat "$format"
     printf '\n'
     cat "$rules"
-  } > "$target"
+  } > "$target" || exit 1
   echo "appended the format and the rules to $target (backup: $backup)"
 fi

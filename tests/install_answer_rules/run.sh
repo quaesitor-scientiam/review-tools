@@ -13,7 +13,8 @@ mark='### A weakness you list is work to do, not a disclosure'
 fails=0
 check() { if eval "$2"; then echo "  ok: $1"; else echo "  FAIL: $1"; fails=$((fails + 1)); fi; }
 # install <case> <target>: runs the installer; its output goes to $work/<case>.out, its exit to rc.
-install() { bash "$script" "$2" > "$work/$1.out" 2>&1; rc=$?; }
+# The installer runs under the same bash as this file, so `/bin/bash run.sh` tests bash 3.2.
+install() { "$BASH" "$script" "$2" > "$work/$1.out" 2>&1; rc=$?; }
 # says <case> <text>: the installer's output starts with that text.
 says() { [ "$(head -c ${#2} "$work/$1.out")" = "$2" ]; }
 count() { grep -c "$1" "$2" || true; }
@@ -67,7 +68,7 @@ check "exit 0 and created" "[ $rc -eq 0 ] && says f 'created: ' && grep -qF \"$m
 
 echo "G. the rules file is missing"
 mkdir -p "$work/g/tools" "$work/g/global"; cp "$script" "$work/g/tools/"; cp "$format" "$work/g/global/"
-bash "$work/g/tools/install_answer_rules.sh" "$work/g/CLAUDE.md" > "$work/g.out" 2>&1; rc=$?
+"$BASH" "$work/g/tools/install_answer_rules.sh" "$work/g/CLAUDE.md" > "$work/g.out" 2>&1; rc=$?
 check "exit 2 and no target written" "[ $rc -eq 2 ] && [ ! -e \"$work/g/CLAUDE.md\" ]"
 
 echo "H. the heading written another way: other letter case, other level"
@@ -129,6 +130,7 @@ check "the link stays a link and the file behind it gets the rules" "[ $rc -eq 0
 mkdir -p "$work/n2/CLAUDE.md"
 install n2 "$work/n2/CLAUDE.md"
 check "a folder at the target is an error, and nothing is put in it" "[ $rc -ne 0 ] && [ -z \"\$(ls -A \"$work/n2/CLAUDE.md\")\" ]"
+check "it says the target is not a file, and never that it created it" "grep -q 'is not a regular file' \"$work/n2.out\" && ! grep -q '^created' \"$work/n2.out\""
 
 echo "O. a file this account cannot write"
 if [ "$(id -u)" -eq 0 ]; then
@@ -139,6 +141,12 @@ else
   check "refused with exit 1, and it says why" "[ $rc -eq 1 ] && grep -q 'cannot be written' \"$work/o.out\""
   check "the file is unchanged and no backup is left" "cmp -s \"$work/o/CLAUDE.md\" \"$work/before.md\" && [ ! -e \"$work/o/CLAUDE.md.bak-answer-rules\" ]"
   chmod u+w "$work/o/CLAUDE.md"
+  # A new file in a folder this account cannot write: the write fails, and bash 3.2 does not
+  # stop for that under `set -e`, so only the write's own `|| exit 1` keeps "created" unsaid.
+  mkdir -p "$work/o2"; chmod a-w "$work/o2"
+  install o2 "$work/o2/CLAUDE.md"
+  check "a new file in a folder it cannot write fails, and never says created" "[ $rc -ne 0 ] && ! grep -q '^created' \"$work/o2.out\" && [ ! -e \"$work/o2/CLAUDE.md\" ]"
+  chmod u+w "$work/o2"
 fi
 
 echo "P. a link at the target that another account made"
