@@ -974,6 +974,22 @@ platform makes this wrong?
   junction, the walk reported the junction's target. The prefix was also built wrong for
   `\x`, `C:x`, a UNC path with `..` and a UNC current folder, a folder named `NUL` changed
   behaviour unannounced, and the root itself got no retry.
+- **A repeat check that compares some fields still applies the others (rev 114).** An early
+  return that calls a message "already applied" because some of its fields match a stored
+  entry (a retransmission, a duplicate, an idempotent repeat) skips everything after it. List
+  every field of the message and, for each one the comparison does not include, say what it
+  does after the return and whether a repeat may carry a new value for it. A field with its
+  own monotonic or cumulative meaning (a retirement point, a maximum, a counter, a window)
+  still applies on the repeat; only the identity fields are the repeat. Run
+  `detect_partial_dedup_return.v` (exit 1 on a return that is the only statement of an `if`
+  comparing a field of a struct parameter with `==` against a field or index of a stored
+  entry, not a literal or enum value, while later code reads another of its
+  fields). Missed on vlang/v#31596 (maintainer review of `955a334fbc`, 2026-11-20):
+  `handle_new_connection_id_frame` returned for a NEW_CONNECTION_ID matching a known sequence,
+  connection ID and token, before the Retire Prior To update, so a repeat that raised Retire
+  Prior To left sequence 0 in use and sent no RETIRE_CONNECTION_ID (RFC 9000 §5.1.2, §19.15
+  ignore only a value that does not increase). The matrix row for the increase was marked
+  CONFORMS on a test where the increase came with a new sequence only.
 - **A new rule must not overwrite something more precise.** For each new line
   that replaces a value, type or state, ask what it holds before that line, for
   every input and not just the motivating one. If it can already be more exact
@@ -1634,6 +1650,15 @@ the RFC-field enumeration) BEFORE writing the parser's tests, not after,
 so "what does a truncated/zero/oversized wire value do here" is asked for
 every field once, up front, rather than rediscovered field-by-field across
 a dozen separate external-review rounds.
+**A third pass, for the HANDLER, not the parser (rev 114):** every field
+with an effect is tested on every path the handler can take for it, the
+"already known / retransmission" path included, and a matrix row is marked
+CONFORMS only when its test covers each of those paths. Missed on
+vlang/v#31596 (maintainer review of `955a334fbc`): the Retire Prior To row
+was CONFORMS on a test where the increase came with a new sequence number;
+a repeat of a known sequence with a higher Retire Prior To was dropped by a
+"retransmission" early return (see Angle A, "A repeat check that compares
+some fields still applies the others").
 
 The specific H2 checks below are the high-frequency subset:
 
