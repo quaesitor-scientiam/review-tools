@@ -974,6 +974,26 @@ platform makes this wrong?
   junction, the walk reported the junction's target. The prefix was also built wrong for
   `\x`, `C:x`, a UNC path with `..` and a UNC current folder, a folder named `NUL` changed
   behaviour unannounced, and the root itself got no retry.
+- **The code's own respelling is a spelling, and twins come in every pair of kinds (rev 115).**
+  Two additions to the bullet above. First: list every change the code itself makes to a path
+  before the look or before the act (a trimmed trailing separator, replaced slashes, a pattern
+  joined on such as `dir + '\*'`), and give every root that such a change alters a row, with
+  the strings as the code built them. A drive root is the standard case: `C:\` trimmed to `C:`
+  is the current folder of that drive for a look, and `C:\*` built from it is the drive root
+  for a listing. A comment that says "the same spelling, so the same directory" is a claim
+  about every root, the respelled ones included: run it with the current folder of that drive
+  set to a link and to a plain folder. Second: where one source says what kind an object is (a
+  directory listing) and another is asked by name (an attribute lookup), make the twins in
+  every pair of kinds, not only a folder beside a folder: a file `x.` and a file `x ` beside a
+  folder `x`, a link beside a folder, a folder beside a file. Run base and head on each.
+  Missed on vlang branch `os-walk-windows-reuse-find-attrs` (adversarial round 2, 2026-11-20,
+  4 of 8 findings): a new comment said the look and the listing "use the same spelling, so
+  both are about the same directory", while `walk_root` trims `S:\` to `S:`, the look then
+  reads the current folder of `S:` and the listing reads `S:\*`; with the current folder a
+  junction, a walk of `S:\` reported `S:` and stopped. And the twins test had only folders
+  `foo` and `foo.`: with a file `x.` beside a folder `x`, base listed `x` a second time as
+  `x.\...` and head reports the file `x.`, a difference from base that no test and no doc
+  sentence named.
 - **A repeat check that compares some fields still applies the others (rev 114).** An early
   return that calls a message "already applied" because some of its fields match a stored
   entry (a retransmission, a duplicate, an idempotent repeat) skips everything after it. List
@@ -2946,6 +2966,20 @@ changes:
   2026-11-11): the wipe printed that a root moved aside during the wipe was "left for a later
   wipe", and the caller's clear-around pass removed that idle moved-aside folder in the same
   run.
+- **A sentence that discloses one consequence covers one consequence (rev 115).** A doc
+  sentence that states a mechanism and then one thing that follows from it ("what an entry is
+  comes from the listing, so a file that the callback replaces by a directory is not entered")
+  is read as the whole list. Write the list out: each kind the mechanism can record (file,
+  folder, link), each thing the object can be when it is used (each kind, and gone), and each
+  party that can change it (the caller's callback, another process). Run base and head on
+  every pair. Then the docs name every pair that differs from base, either by a rule that
+  covers them all or by one sentence each. A tree that nobody changes counts as well: when two
+  sources disagree about an object at rest (Angle A, rev 115), that difference needs its
+  sentence too. Missed on vlang branch `os-walk-windows-reuse-find-attrs` (adversarial round
+  2, 2026-11-20, 2 of 8 findings): the docs named only "a file that the callback replaces by a
+  directory". An entry listed as a link and replaced by a real directory is treated the same
+  way, and base entered it; a file `x.` beside a folder `x` differs from base with nothing
+  changing during the walk.
 
 **Artifact:** for every doc comment touched or introduced this diff that
 states a parameter's composition or a MUST-order rule, one line: the
@@ -3482,6 +3516,36 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   the program does over time, and the probe refuses that kind for a dropped release. Missed on vlang branch `os-walk-windows-reuse-find-attrs`
   (adversarial round 1, 2026-11-20): the walk without its `C.FindClose` passed every test,
   and the generated list had no mutant for it because a release is not a condition.
+- **A new test file is built with every compiler the project's CI uses (rev 115).** Read the
+  CI configuration for the compiler flags of each job that runs the tests (in vlang, `VFLAGS`
+  in `.github/workflows/*.yml`, for example `-cc tcc -no-retry-compilation`, `-cc msvc`,
+  `-cc gcc`, `-cc clang`). Build every new or changed test file once per flag set this machine
+  has, with the fallback to another compiler switched off, and name the flag sets that were
+  not run. A local run that prints "falling back to" has not tested the first compiler. For
+  each C function a test declares itself (`fn C.Name(...)`), search the other tests for the
+  same name before writing it: a sibling that reaches it through `GetProcAddress` or inside a
+  `$if` is written that way because some compiler's import library lacks the function. Missed
+  on vlang branch `os-walk-windows-reuse-find-attrs` (adversarial round 2, 2026-11-20, 1 of 8
+  findings): the new `walk_windows_test.c.v` declared `C.GetProcessHandleCount`, which the
+  bundled TCC import library does not have, so the file does not link under the Windows TCC
+  job's `-cc tcc -no-retry-compilation`. `exec_handles_windows_test.c.v` in the same folder
+  says so in a comment and loads the function by name. Every local run passed through the
+  fallback to gcc.
+- **Equivalent is judged at the changed function's own result (rev 115).** A survivor is
+  equivalent only when the mutated function returns and stores the same things as before.
+  When another function makes up for the difference later (a second look before use), the
+  mutant still changes what this function hands on. That value has a stated meaning (a field
+  comment, a doc sentence), so either a unit test of this function asserts the meaning, with a
+  fixture that holds the case, or the clause and the sentence both go. A dropped release filed
+  as a limit follows hard rule 5: the limit names the run that shows why no test can see it
+  (the build mode in which the resource comes back anyway, and the one in which it does not),
+  or it is put to the user. Missed on vlang branch `os-walk-windows-reuse-find-attrs`
+  (adversarial round 2, 2026-11-20, 2 of 8 findings): six mutation runs of the inline passes
+  showed `&& (attr & 0x400) == 0` alive and three showed `free(wpattern)` alive. The first was
+  filed as equivalent because `walk_enters` looks again, though the field it sets is
+  documented as "a directory that is not a link" and the unit test of `walk_push_entries` had
+  no link in its folder. The second was filed as a limit on the reasoning that the collector
+  owns the buffer, with no run under `-gc none`.
 - **Every input advance is a mutant (rev 104).** In code that scans or parses, delete each
   statement the diff adds that moves the input on (`tok = scan.scan()`, `p.next()`, a
   `lookahead.scan()` whose result is kept), one mutant each. A dropped advance is the commonest
