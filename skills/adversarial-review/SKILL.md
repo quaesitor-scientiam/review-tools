@@ -34,10 +34,12 @@ of bugs. Adversarial verification on top of THAT catches the other failure
 mode: a finder agent inventing a plausible-sounding but wrong claim, which an
 unverified finding list would otherwise pass through as fact.
 
-This is a **standing, pre-authorized use of the Workflow tool** for this user
-— do not re-ask permission to invoke Workflow when running this skill. (If a
-future session runs this for a different user/account, confirm first — the
-opt-in is this user's, not a property of the skill itself.)
+**Each round needs the user's explicit permission (rev 116).** A round is
+costly, so propose it first: the scope, the number of lenses and refuters,
+and a rough token cost, and run the Workflow only on a yes for that round.
+An earlier yes does not cover the next round, and no other skill's loop
+order ("then `/adversarial-review`") replaces the ask. Until 2026-11-21 this
+skill was a standing opt-in; the user withdrew it because of cost.
 
 ## Step 1 — Determine scope and gather grounding context yourself
 

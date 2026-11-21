@@ -46,7 +46,9 @@ memory, because memory does not sync.
    skipping it. Do not decide alone.
 3. **Review loop order.** `/vreview` → fix → rerun `/vreview` after EVERY fix round
    until a pass has no confirmed findings → only then `/adversarial-review` → fix →
-   back to `/vreview`. Repeat until both are clean in the same round. The inline pass
+   back to `/vreview`. Each adversarial round runs only on the user's explicit yes for
+   that round, asked with its scope and rough cost (rev 116).
+   Repeat until both are clean in the same round. The inline pass
    is far cheaper; every defect it catches is one the agent swarm need not.
    **Where the code approximates another tool, "clean" can't be reached, so the loop
    stops at a round with no blocking finding.** That covers a resolver, analyzer or
@@ -1679,6 +1681,22 @@ was CONFORMS on a test where the increase came with a new sequence number;
 a repeat of a known sequence with a higher Retire Prior To was dropped by a
 "retransmission" early return (see Angle A, "A repeat check that compares
 some fields still applies the others").
+**A frame the diff sends gets a §13.3 row, and a MUST is never ADVISORY
+(rev 116):** for every frame type the diff starts sending, add a matrix row
+quoting what RFC 9000 §13.3 says happens when the packet carrying it is lost
+(sent again, sent again with current values, or never sent again as for
+PATH_RESPONSE), and give that row a test that declares the packet lost by
+each loss path (an ACK of later packets, and the loss timer). A matrix row
+or code comment that calls a missing MUST a "known limitation", "deferred"
+or ADVISORY is a GAP: the label decides nothing (Angle H, "Does a 'this is
+out of scope' note actually name what it exempts"). Missed on vlang/v#31596
+(maintainer review of `407433ba5a`, 2026-11-21): RETIRE_CONNECTION_ID frames
+were cleared from their queue once built and never sent again after loss;
+the matrix row read "Known limitation ... ADVISORY" and
+`drain_pending_cid_and_path_frames` said "no general retransmission of lost
+frames yet". The same row label also hid the client's lost STREAM,
+RESET_STREAM, MAX_DATA, MAX_STREAM_DATA and STREAMS_BLOCKED frames (now a GAP
+row).
 
 The specific H2 checks below are the high-frequency subset:
 
