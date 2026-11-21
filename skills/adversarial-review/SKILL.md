@@ -52,6 +52,17 @@ context you already have:
 - If given a PR#/branch: `gh pr diff <N>` or `git diff <merge-base>...HEAD`.
 - If given a freeform description: read whatever files/claims it points to.
 
+**Check that the tree holds the change before every launch (rev 117).** Run
+`git branch --show-current` and `git status --short` in the checkout the agents will read,
+and confirm that the changed files show as changed, or that the commits are on the branch. A
+checkout can be switched, stashed or pulled between two rounds by the user or by another
+session, and the line ranges and "the working tree is head" in the brief then point at other
+code. Missed on vlang branch `os-walk-windows-reuse-find-attrs` (round 3, 2026-11-21): the
+checkout had been moved to `master` and the change stashed a day after round 2; the round was
+launched without a look, and two of its three confirmed findings were that the code under
+review was not there. The agents read it from the stash; every run of the walk in that
+round measured base.
+
 While reading, collect what agents will need and can't efficiently discover
 themselves: absolute file paths, the specific functions/lines in scope, any
 established convention or sibling pattern this change claims to follow (find

@@ -996,6 +996,20 @@ platform makes this wrong?
   `foo` and `foo.`: with a file `x.` beside a folder `x`, base listed `x` a second time as
   `x.\...` and head reports the file `x.`, a difference from base that no test and no doc
   sentence named.
+- **A name is read by where it stands in the path (rev 117).** The same name can be read one
+  way as the last part of a path and another way as a middle part. On Windows a plain path
+  drops a space at the end of its last part, and keeps it in a middle part: a look at `t\d `
+  reads `t\d`, while a listing of `t\d \*` and a child `t\d \f` read the real `d `. A dot at
+  the end is dropped in both places. So every name of the bullets above gets two rows: as the
+  end of the path that is looked at, and followed by what the act appends (`\*`, a child
+  name). Run both and compare the objects; do not carry the answer from one place to the
+  other. And a comment that lists exceptions ("the one exception is a drive") is a claim that
+  the list is complete: each name shape of the rev 113 list is a row against it. Missed on
+  vlang branch `os-walk-windows-reuse-find-attrs` (adversarial round 3, 2026-11-21): the
+  comment fixed after round 2 named a drive-only path as the one exception. With folders `gsp`
+  and `gsp ` side by side, the second look read `gsp` and the listing read `gsp `; after a
+  swap of `gsp ` for a junction during the walk, base and head both listed through it. The
+  round 1 and 2 rows had tried a trailing space only as the last part.
 - **A repeat check that compares some fields still applies the others (rev 114).** An early
   return that calls a message "already applied" because some of its fields match a stored
   entry (a retransmission, a duplicate, an idempotent repeat) skips everything after it. List
