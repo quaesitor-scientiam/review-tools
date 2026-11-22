@@ -1011,6 +1011,26 @@ platform makes this wrong?
   and `gsp ` side by side, the second look read `gsp` and the listing read `gsp `; after a
   swap of `gsp ` for a junction during the walk, base and head both listed through it. The
   round 1 and 2 rows had tried a trailing space only as the last part.
+- **Kinds of object are crossed with kinds of place, a name is also run alone, and a sentence
+  is run for every root form (rev 128).** Three additions to the path bullets above. First: a
+  table that runs the object kinds (a file link, a directory link, a FIFO, a device) on the
+  local disk, and the places (an SMB share, `\\wsl.localhost`, FAT, exFAT) with plain folders
+  only, has run two lists and not their product. Every object kind that the code tells apart
+  by an attribute, or by whether an open succeeds, gets a row on every kind of place the code
+  can meet, as the root and as an entry. A comment that says what the system does with a path
+  ("a path that ends in a separator has attributes only when it is a directory") is a claim
+  per filesystem: run it on each. Second: each special name is also run as a one-part relative
+  path, with a folder of that name in the current folder; that is a third position beside the
+  two of rev 117. Third: a doc or PR sentence that says what a respelling changes is run for
+  each root form of the table (plain, the `\\?\` form, UNC, a drive alone). Missed on vlang
+  branch `os-walk-windows-reuse-find-attrs` (adversarial round 4, 2026-11-22, 3 of 6
+  findings): the walk called anything with the reparse attribute that opened under `name\` a
+  link. On NTFS a file symlink does not open that way, so the local row matched base; over
+  SMB and 9P it does, and a root that is a file symlink, a FIFO or a symlink to a file was
+  passed to the callback where base reports nothing. `os.walk('CON')` was walked where base
+  gives nothing, and the docs named `NUL` alone. And the PR text said the extra separators
+  "stayed in every reported path" for a root ending in `/`, while for `\\?\S:\dir/` base
+  reported nothing at all.
 - **Names Windows looks up, reads as a device, or reports gone in its own words (rev 119).**
   Four more rows for the rev 113 list. The 8.3 short name of a folder and of a link (a setting
   spelled `LINKTO~1`): a comparison that ignores case only never matches it to the listed long
@@ -3558,6 +3578,21 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   a guard around a write had no mutant. Missed on the same branch (adversarial round 2):
   `if in_flight { ld.timer_set_at = now }` forced on passed every test, though an ACK-only
   packet must not restart the anti-deadlock timer (RFC 9002 Appendix A.5).
+- **Every constant handed to a system call is a mutant, and a callback is swapped with the act
+  beside it (rev 128).** Two more hand mutants that the generated list never holds. For each
+  access right, share mode, flag or class value the diff passes to an OS or library call: one
+  mutant per neighbouring value that still lets the common case work (share mode 7 to 3 and to
+  5, the specific right to the generic one, one flag dropped). A mutant to 0 that an
+  incidental test kills does not stand for them. Each needs a fixture where the two values
+  differ, taken from the call's own documentation (a second handle with delete access, an
+  object that denies one of the rights the generic one asks for). And where the code calls a
+  user callback before or after a look or a listing: one mutant that swaps the two, with a
+  fixture whose callback changes the very object it was given, not a sibling. Missed on vlang
+  branch `os-walk-windows-reuse-find-attrs` (adversarial round 4, 2026-11-22, 3 of 6
+  findings): the share mode without delete sharing, the list right replaced by generic read,
+  and a folder listed before the callback was called for it, each passed both test files.
+  With a folder held open with delete access, or one that denies read-extended-attributes, the
+  first two list nothing where base lists the folder.
 - **A changed predicate is tested through every caller, a second run included (rev 107).** When
   a fix changes what a predicate accepts (what marks a root, which names count as ours), grep
   every caller of the predicate and of any function that copies its logic, and give each one a
