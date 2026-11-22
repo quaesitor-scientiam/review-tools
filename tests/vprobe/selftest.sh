@@ -179,6 +179,41 @@ same_file endless "$src" a
 echo a > "$src"
 rm -f "$src.vprobe-orig"
 
+# When the unmutated tests reach the time limit too, a mutant that reaches it is untested, not a
+# kill (rev 119), also when it failed a test first: the unmutated runs ended at the limit may
+# never have got to that test. Here every run from the third on stands for a slow one that the
+# limit ends, as four specs side by side on a slow filesystem did on vlang/v#31848: the two first
+# unmutated runs fail the red test only, the null mutant, all five mutants and the control after
+# the fourth end at the limit, and the first mutant fails `test_late` before it does (its letter
+# `z` is one that the null mutant's comment does not hold). The limit ends a run with exit 124
+# (SIGTERM, or the Windows job), or 137 when SIGKILL follows: the case runs once with each.
+cat > "$m/slow.sh" <<EOF
+n=\$(cat "$m/slowcount" 2>/dev/null || echo 0)
+echo \$((n + 1)) > "$m/slowcount"
+echo "x_test.v:1: fn test_always_red"
+if grep -q z "$src"; then echo "x_test.v:2: fn test_late"; fi
+if [ "\$n" -ge 2 ]; then exit "\$1"; fi
+exit 1
+EOF
+for code in 124 137; do
+  rm -f "$m/slowcount"
+  echo '{"test": "sh '$m'/slow.sh '$code'", "control_may_fail": true, "mutants": [
+    {"file": "'$src'", "line": 1, "find": "a", "replace": "z", "note": "slow one"},
+    {"file": "'$src'", "line": 1, "find": "a", "replace": "c", "note": "slow two"},
+    {"file": "'$src'", "line": 1, "find": "a", "replace": "d", "note": "slow three"},
+    {"file": "'$src'", "line": 1, "find": "a", "replace": "e", "note": "slow four"},
+    {"file": "'$src'", "line": 1, "find": "a", "replace": "f", "note": "slow five"}]}' > "$m/slow.json"
+  "$P" mutate "$m/slow.json" > "$m/slow$code.out" 2>&1
+  expect_exit "slow $code" 1 "$m/slow$code.out" $?
+  has "slow $code" "$m/slow$code.out" '^TIME LIMIT: an unmutated run of the tests reached'
+  has "slow $code" "$m/slow$code.out" 'slow one\) \| TIMEOUT, not a kill'
+  has "slow $code" "$m/slow$code.out" 'slow five\) \| TIMEOUT, not a kill'
+  lacks "slow $code" "$m/slow$code.out" 'KILLED \(exit 1(24|37)'
+  lacks "slow $code" "$m/slow$code.out" 'KILLED by test_late'
+  has "slow $code" "$m/slow$code.out" '^5 could not be tested'
+  same_file "slow $code" "$src" a
+done
+
 # Tests that are red without a mutant stop the run, unless the spec allows judging by names.
 echo '{"test": "exit 1", "mutants": [{"file": "'$src'", "line": 1, "find": "a", "replace": "b"}]}' > "$m/red.json"
 "$P" mutate "$m/red.json" > "$m/red.out" 2>&1

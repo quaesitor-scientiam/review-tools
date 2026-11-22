@@ -1010,6 +1010,22 @@ platform makes this wrong?
   and `gsp ` side by side, the second look read `gsp` and the listing read `gsp `; after a
   swap of `gsp ` for a junction during the walk, base and head both listed through it. The
   round 1 and 2 rows had tried a trailing space only as the last part.
+- **Names Windows looks up, reads as a device, or reports gone in its own words (rev 119).**
+  Four more rows for the rev 113 list. The 8.3 short name of a folder and of a link (a setting
+  spelled `LINKTO~1`): a comparison that ignores case only never matches it to the listed long
+  name. Every character a search API reads as a pattern, in any name the code hands to one
+  (`FindFirstFileW` reads `*`, `?`, `<`, `>` and `"`): such a name finds another object. The
+  device names, taken from the Windows the tests run on and not from a list (`GetFullPathNameW`
+  of `COM0`, `LPT0`, a superscript `COM`, `CONIN$`, `CONOUT$`): which names a path reaches as a
+  device changed between Windows versions, so a name refused as a device may be an ordinary
+  file there. And where code decides from an error's text that an object is gone, give every
+  call it makes on that path a row with the path gone, and record each text: on Windows
+  `os.rm`, `os.rmdir`, `os.ls` and `os.mkdir` say it four different ways, so decide from the
+  error code. Missed on vlang/v#31848 (adversarial rounds 9 and 10, 2026-11-20, 5 findings): a
+  `VTOOLS_CACHE_DIR` link spelled by its short name was removed as ordinary content while the
+  tools pass said it was left (2 findings); `<`, `>` and `"` in a setting respelled it to
+  whichever folder the pattern matched; `COM0` and `CONIN$` were refused as devices though a
+  path reaches them as files; and the gone check knew only the text of `os.rm`.
 - **A repeat check that compares some fields still applies the others (rev 114).** An early
   return that calls a message "already applied" because some of its fields match a stored
   entry (a retransmission, a duplicate, an idempotent repeat) skips everything after it. List
@@ -1099,6 +1115,19 @@ For each changed function, grep for its callers. Does the change break a
 precondition, return shape, timing assumption, or ordering dependency at any call
 site? Also check callees: does a parallel change in the diff make a downstream
 call unsafe?
+
+**A program that hands the change its inputs is a caller too (rev 119).** List every program
+that runs the changed command or sets what it reads before running it: grep the repository for
+each environment variable, option and config field the change reads (`os.setenv('VCACHE'`, an
+environment map passed to a child process) and for the command's name in other tools
+(`wipe-cache` in `cmd/tools/vup.v`). A tool that hands over a value it has already changed
+(made absolute with `os.abs_path`, trimmed, given a default) skips what the change does with
+the raw value. Give each such route a row with every input the change handles specially (a
+`..` after a link, a relative path from a folder that was removed), run through that route.
+Missed on vlang/v#31848 (adversarial round 9, 2026-11-20): `v up` made VCACHE, V3CACHE,
+VTOOLS_CACHE_DIR and VTMP absolute with `os.abs_path` before it ran `v wipe-cache`, so the
+wipe's new handling of `..` and of a nameless working folder never ran on that route, and a
+relative setting from a removed folder became `/<setting>` and was wiped.
 
 **A renamed EMITTED symbol has "callers" too: every place the generator
 spells that name, not only the V callers of the function you changed.** When
@@ -1980,6 +2009,23 @@ the sentence above already asked for this reading. The last race report held
 next to "0/20 rounds differ", and nobody paired the two; the other wipe had
 removed those entries.
 
+**The program's own earlier passes are a party, and a set worked out again forgets (rev
+119).** A program that runs in passes (a tools pass, then one over VTMP, then one over
+V3CACHE) changes, in an early pass, what a later pass looks up. For every place a later pass
+knows by a lookup (where a link leads, a real path, the listing of a parent), list every
+earlier pass that removes, replaces or makes an object on the way to it, and give each pass
+selection that runs both (the default run, two selectors together) a row, with a pause
+between the passes. A fix that works such a set out again at each use must also keep what
+the earlier uses knew. On Windows, where the folder the code holds is only a path, the rev 108
+look-then-act rows run there too, with a junction swapped in after the look. Missed on
+vlang/v#31848 (adversarial rounds 9 and 10, 2026-11-20, 6 findings): round 9 found the rev 108
+shape one level down, a known folder inside a link that a build replaces, and on Windows a
+junction swapped in after the path check. The round 9 fix worked the known set out again on
+every pass, and round 10 found four ways it then forgot a folder: behind the default
+`<VTMP>/tools` link the wipe's own tools pass removes, behind a setting link a build moves
+aside, and through a `..` after a link that an earlier step removed. The read rows named builds
+and a second wipe, never the run's own earlier pass.
+
 **Artifact: concurrency matrices.** All three tables above, one set per
 diff. State "none" for a matrix with no applicable rows (e.g. a diff with
 no condition variables gets "none" for Matrix 2) rather than omitting it —
@@ -2726,6 +2772,18 @@ wire-parsing code.
   to; with the link at the `VTMP` path, or leading to `VCACHE`, it removed the link or left the
   cache folder missing; and started from a folder it could not read, it failed on every link.
   None of these was a row: the matrix had one setting layout and one working folder.
+  **A pattern in the docs is the set to test, and a superuser branch is a behaviour (rev
+  119).** For each name pattern the docs or the help give for names the code treats specially
+  (`<folder>.untrusted-*`), the `named` rows include a name the pattern admits and the code's
+  own shape check refuses (`vtools.untrusted-x` beside a check for `<digits>-<digits>`), with
+  every object kind and owner, and its disposition quotes the sentence. Every branch that
+  exempts the superuser (`if superuser`, a `uid == 0` test) is a behaviour too: the docs and the
+  help state it, the matrix has its root row, and a test holds each clause of the check it
+  skips. Missed on vlang/v#31848 (adversarial rounds 9 and 10, 2026-11-20, 5 findings): round 9
+  found any `<folder>.untrusted-*` object another account planted taken in as the wipe's own
+  folder, failing every wipe and `v up`. The round 9 fix left another account's object only in
+  V's own `<seconds>-<pid>` shape, so round 10 found `vtools.untrusted-x` still failing every
+  wipe (3 findings), and the superuser removing such objects with no sentence saying so.
 
 ### Angle H — Absence search (what MUST exist but doesn't)
 
@@ -3028,6 +3086,15 @@ changes:
   directory". An entry listed as a link and replaced by a real directory is treated the same
   way, and base entered it; a file `x.` beside a folder `x` differs from base with nothing
   changing during the walk.
+- **A sentence about what the program does gets a row per platform branch (rev 119).** Where an
+  `$if windows` (or any system) branch sits behind a behaviour, the program does two things. A
+  docs sentence, help line or status text that states the behaviour ("will be moved aside on
+  next tool build", "`..` is taken as the system takes it") is checked against each branch, and
+  against each route that reaches the behaviour (Angle C, rev 119). A line printed on every
+  system and true on one is a finding. Missed on vlang/v#31848 (adversarial round 9,
+  2026-11-20, 2 findings): the candidate list told Windows users a default folder "will be
+  moved aside", which a Windows build never does; and the docs said a `..` after a link is
+  taken as the system takes it, which `v up` undid before the wipe ran.
 
 **Artifact:** for every doc comment touched or introduced this diff that
 states a parameter's composition or a MUST-order rule, one line: the
@@ -3499,6 +3566,15 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   probe exits 1 for it, and it is neither a kill nor a survivor. On vlang/v#31848 two blind
   runs took a test of what the changed predicate still refuses for coverage of what it
   newly accepts; the run that ran mutants reported the gap.
+  **A mutant ended at the time limit is a kill only when the code never reached it (rev
+  119).** When an unmutated run of the tests reaches the time limit too, the probe prints
+  `TIME LIMIT` and files every mutant that also reached it as `TIMEOUT, not a kill`, untested.
+  Run fewer specs at once, or the tree on a faster filesystem (an ext4 copy, not
+  `/mnt/<drive>`), and rerun; never read such a run's kills. Before rev 119 the probe called
+  each of them `KILLED (exit 124)`. Missed on vlang/v#31848 (inline pass after adversarial
+  round 10, 2026-11-21): four specs side by side on `/mnt/s` reported 63 mutants (15 or 16 a
+  spec) killed by the time limit while 4 unmutated runs a spec also ended there; rerun on ext4
+  copies, the same four specs had 60 survivors where the first run showed 34.
 - **The mutants come from the diff: `changed_from`, and three more generated kinds (rev 110).**
   **`changed_from` is required, and loops are cut (rev 111).** `vprobe mutate` now refuses a
   spec with `source` and no `changed_from` (use an empty file for a new file). It also
@@ -3607,6 +3683,29 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   documented as "a directory that is not a link" and the unit test of `walk_push_entries` had
   no link in its folder. The second was filed as a limit on the reasoning that the collector
   owns the buffer, with no run under `-gc none`.
+- **A kill counts from a run that shows the test ran, on a system that reaches the line (rev
+  119).** Four checks before a hand mutant's result goes into the log. First, read the test's
+  own line: with `-stats` V prints `OK [n/m] ... k asserts | main.test_name()`. A test file that
+  does not compile prints `FAIL 0.000 ms` with no test line, and a `-run-only` name that matches
+  nothing passes with no test run at all; a kill names the failing assert's line, a survival
+  names the test and its assert count. Second, type-check every changed test file on each
+  system its `$if` branches name (`v -check file_test.v` on Linux and on Windows): a block under
+  `$if !windows` is not checked on Windows, nor the reverse. Third, mutate a line where it is
+  reached: a branch only one system reaches (a case-insensitive filesystem's, as on macOS; a
+  `$if windows` block) is run on that system, or on one that behaves the same. On Linux and
+  WSL a Windows drive mounted at `/mnt/<drive>` ignores case and reports inodes as macOS does,
+  so a test whose folders lie there reaches the macOS branch. A mutant that survives where its
+  line is never reached is no survivor and no kill: say where it ran. Fourth, when no layout is
+  known that makes a mutant differ, build the code and the mutant and run both over candidate
+  layouts (`vprobe matrix` with the mutant build in base's place, or the command by hand), then
+  write the test for a layout where they differ. Missed on vlang/v#31848 (inline pass after
+  adversarial round 10, 2026-11-21): of the tests written for that pass's survivors, two passed
+  under their mutants because their layouts did not make the mutated clause matter, one failed
+  on the code,
+  one did not compile on Linux (a `mut` call on a temporary under `$if !windows`, which the
+  Windows check skipped), and the spelling branch that only macOS reaches survived every ext4
+  run. Each was caught only because the mutant was run by hand, with the test's own line read,
+  before the kill was logged.
 - **Every input advance is a mutant (rev 104).** In code that scans or parses, delete each
   statement the diff adds that moves the input on (`tok = scan.scan()`, `p.next()`, a
   `lookahead.scan()` whose result is kept), one mutant each. A dropped advance is the commonest

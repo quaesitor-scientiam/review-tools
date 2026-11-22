@@ -104,7 +104,9 @@
 //
 // Time limit: every spec command (cmd, prepare, setup, actor, in_pause, build, test, check, the
 // assemblers) still running after 600 s is ended, with the processes it started, and counts as
-// exit 124 (mutate: "KILLED (exit 124: the tests hung or crashed)"). On Linux and macOS each runs
+// exit 124 (mutate: "KILLED (exit 124: the tests hung or crashed)", unless an unmutated run of the
+// tests reached the limit too: then the mutant is "TIMEOUT, not a kill", untested, and the run
+// exits 1; rev 119). On Linux and macOS each runs
 // under `timeout -k 10 600`: at the limit SIGTERM goes to the command's process group, and 10 s
 // later SIGKILL (exit 137). GNU coreutils sends that SIGKILL to the whole group; uutils coreutils
 // (Ubuntu 26.04's `/usr/bin/timeout`) sends it to the command's own process only, so there a
@@ -2186,6 +2188,12 @@ fn cmd_mutate(given Spec, list_only bool) int {
 		}
 	}
 	println('# mutants: ${spec.mutants.len}; the unmutated tests ran ${control_exits.len} times, exits ${control_exits}')
+	// rev 119: when the unmutated tests reach the time limit, the limit says nothing about a mutant:
+	// a mutant that reaches it too was slow like the code, not stopped by what it changed.
+	control_timed_out := control_exits.any(it in [124, 137])
+	if control_timed_out {
+		println('TIME LIMIT: an unmutated run of the tests reached the ${limit_secs} s limit (exits ${control_exits}), so a mutant that reached it too is untested, not killed. Run fewer copies at once or on a faster filesystem, and rerun.')
+	}
 	if ignored.len > 0 {
 		println('Failing without a mutant (or listed in ignore_tests), so they show no kill: ${ignored.join(', ')}')
 	}
@@ -2212,6 +2220,13 @@ fn cmd_mutate(given Spec, list_only bool) int {
 			verdict = 'NOT APPLICABLE (the iterable cannot be sliced: a map or an iterator)'
 			not_applicable++
 		} else if verdict != '' {
+			untested++
+		}
+		if verdict == '' && run.exit in [124, 137] && control_timed_out {
+			// The code itself reached the limit in an unmutated run, so the limit is no evidence of a
+			// hang, and a test this run failed or crashed in may be one the unmutated runs never got
+			// to: the run is not judged at all.
+			verdict = 'TIMEOUT, not a kill: the unmutated tests reached the time limit too'
 			untested++
 		}
 		if verdict == '' {
@@ -2245,7 +2260,7 @@ fn cmd_mutate(given Spec, list_only bool) int {
 		println('${not_applicable} generated loop cuts do not apply: the loop goes over a map or an iterator.')
 	}
 	if untested > 0 {
-		println('${untested} could not be tested (the INVALID rows): they are neither killed nor survived. Correct them and rerun.')
+		println('${untested} could not be tested (the INVALID and TIMEOUT rows): they are neither killed nor survived. Correct them and rerun.')
 	}
 	for name, count in kills {
 		if count >= 3 {
