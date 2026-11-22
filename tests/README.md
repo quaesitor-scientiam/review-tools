@@ -47,7 +47,10 @@ With no arguments the runner also fails for any detector on disk that has neithe
 added without a fixture or a written reason; for any detector that calls `git`
 (the runner owns all git access); and it runs a smoke test of `run_detectors.sh`
 itself on a throwaway repo (no-arg change detection, `--at <rev>`, path
-normalisation).
+normalisation; and for rev 120, `.md` files changed on the branch and in the
+working tree that must reach the claims detector with their base copies, a changed
+file of another kind that no-arg mode leaves out, `--at` with two targets, and
+`--base`).
 
 Every detector is a V program in `detectors/<name>.v`, compiled once per run
 (cases are labelled `[v]`); a `.sh`/`.ps1` twin in `skills/code-review/`, if one

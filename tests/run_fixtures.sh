@@ -201,6 +201,11 @@ fi
 # master holds the known_good lenient-parse fixture, feature the known_bad one.
 # No-arg mode must select the changed file and FLAG it; --at master must scan
 # the old content and pass; a CRLF/backslash-polluted path must be normalised.
+# doc/docs.md has one line on master and one more on feature: the claims
+# detector must get it with its base copy and list only the feature line
+# (rev 120; the runner gave it .v files only, so a batch never listed docs).
+# doc/wt.md gains two lines in the working tree only, and notes.txt is a changed
+# file of no target kind: no-arg mode must take the first and leave the second.
 smoke() { # $1=label $2=expected rc $3=regex the output must match, rest=runner args
     local label="$1" want="$2" re="$3"; shift 3
     local out rc
@@ -214,24 +219,52 @@ smoke() { # $1=label $2=expected rc $3=regex the output must match, rest=runner 
     fi
 }
 if [ "$check_coverage" -eq 1 ]; then
-    r="$work/runner-smoke"; rm -rf "$r"; mkdir -p "$r/vlib/x"
+    r="$work/runner-smoke"; rm -rf "$r"; mkdir -p "$r/vlib/x" "$r/doc"
     if ( cd "$r" && unset GIT_DIR GIT_WORK_TREE \
          && git init -q -b master . \
          && cp "$here/detect_lenient_parse/known_good/guarded/parse.v" vlib/x/parse.v \
+         && printf 'Docs line written on master.\n' > doc/docs.md \
+         && printf 'Working-tree docs line written on master.\n' > doc/wt.md \
          && git add -A && git -c user.name=f -c user.email=f@x -c commit.gpgsign=false commit -q -m base \
          && git checkout -q -b feature \
          && cp "$here/detect_lenient_parse/known_bad/unguarded/parse.v" vlib/x/parse.v \
-         && git add -A && git -c user.name=f -c user.email=f@x -c commit.gpgsign=false commit -q -m feature ); then
+         && printf 'Docs line added on feature.\n' >> doc/docs.md \
+         && printf 'Not a target kind, added on feature.\n' > notes.txt \
+         && git add -A && git -c user.name=f -c user.email=f@x -c commit.gpgsign=false commit -q -m feature \
+         && printf 'Working-tree line one, uncommitted.\nWorking-tree line two, uncommitted.\n' >> doc/wt.md ); then
         # Both runners: the shell one, and the V one compiled once (when V is available).
+        # The docs cases: 1 new line in doc/docs.md and 2 in doc/wt.md mean each got its
+        # base copy (2 and 3 without it); no-arg mode has 3 targets, 4 if it took notes.txt.
+        docs_flag='FLAG\] detect_external_behavior_claims\.v +RESULT: 1 new'
+        docs_line='\| +line 2: Docs line added on feature\.'
+        wt_flag='FLAG\] detect_external_behavior_claims\.v +RESULT: 2 new'
+        noarg_count='run_detectors: 3 target file\(s\), base '
+        docs_at_ok='\[ OK \] detect_external_behavior_claims\.v'
         runner=(bash "$detdir/run_detectors.sh")
         smoke sh/no-arg-flags-changed-file 1 'FLAG\] detect_lenient_parse'
         smoke sh/at-master-passes 0 '@ master' --at master vlib/x/parse.v
         smoke sh/normalised-path 1 'target: vlib/x/parse\.v' "vlib\\x\\parse.v"$'\r'
+        smoke sh/docs-target-gets-base-copy 1 "$docs_flag" doc/docs.md
+        smoke sh/docs-target-lists-the-new-line 1 "$docs_line" doc/docs.md
+        smoke sh/no-arg-selects-changed-docs 1 "$docs_flag"
+        smoke sh/no-arg-selects-working-tree-docs 1 "$wt_flag"
+        smoke sh/no-arg-skips-other-kinds 1 "$noarg_count"
+        smoke sh/at-master-scans-old-docs 0 "$docs_at_ok" --at master doc/docs.md
+        smoke sh/at-master-scans-every-target 0 '2 target file\(s\) @ master' --at master doc/docs.md vlib/x/parse.v
+        smoke sh/base-option-sets-the-base-copy 0 "$docs_at_ok" --base feature doc/docs.md
         if [ -n "$vexe" ] && "$vexe" -o "$(to_native "$work/bin/run_detectors")" "$(to_native "$root/detectors/run_detectors.v")" >/dev/null 2>&1; then
             runner=("$work/bin/run_detectors")
             smoke v/no-arg-flags-changed-file 1 'FLAG\] detect_lenient_parse'
             smoke v/at-master-passes 0 '@ master' --at master vlib/x/parse.v
             smoke v/normalised-path 1 'target: vlib/x/parse\.v' "vlib\\x\\parse.v"$'\r'
+            smoke v/docs-target-gets-base-copy 1 "$docs_flag" doc/docs.md
+            smoke v/docs-target-lists-the-new-line 1 "$docs_line" doc/docs.md
+            smoke v/no-arg-selects-changed-docs 1 "$docs_flag"
+            smoke v/no-arg-selects-working-tree-docs 1 "$wt_flag"
+            smoke v/no-arg-skips-other-kinds 1 "$noarg_count"
+            smoke v/at-master-scans-old-docs 0 "$docs_at_ok" --at master doc/docs.md
+            smoke v/at-master-scans-every-target 0 '2 target file\(s\) @ master' --at master doc/docs.md vlib/x/parse.v
+            smoke v/base-option-sets-the-base-copy 0 "$docs_at_ok" --base feature doc/docs.md
         else
             echo "  [SKIP] runner-smoke/v: no V compiler or run_detectors.v did not compile"; skip=$((skip+1))
         fi

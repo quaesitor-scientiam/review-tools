@@ -3038,6 +3038,16 @@ changes:
   depends on a condition ("as its padding may take it") is probed on each side of the
   condition; stated as a fact, it must hold on both. Missed on vlang/v PR 31407 (adversarial
   round 15, 2026-11-14): "an alignment directive ... ends the prefix" was never in the ledger.
+  **The batch feeds the docs rows (rev 120).** `run_detectors.v` runs this detector on every
+  `.md` target, and its no-arg mode selects changed `.md` files; when you name the targets,
+  name the touched `.md` files too. Before writing the ledger, check that the batch log's
+  `=== run_detectors:` line names a base and that a `detect_external_behavior_claims.v` line
+  sits under each touched `.md` target, and take that line's count as the docs rows' count. The
+  base is the merge base with `master`; where the default branch has another name, pass
+  `--base <rev>`: with `base none` every line of the file is listed (over 4000 for this file).
+  Missed on vlang/v#31848 (inline pass after adversarial round 10, 2026-11-21): the runner gave
+  the detector `.v` files only, so `doc/docs.md` ran no detector and none of its 108 new lines
+  had a ledger row; a `/vreview` of the PR under rev 119 found the gap (2026-11-22).
   **The ledger has one row per listed line, counted (rev 111, verification).** Write the
   detector's count beside the ledger and give every listed line a row, even one that says "no
   claim about another tool"; a ledger shorter than the count is unfinished. A blind rev 111 run

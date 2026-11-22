@@ -13,8 +13,10 @@
 //
 //   file.v ...   target files (repo-relative or absolute; Windows separators and
 //                CRLF-polluted args are normalised). With no files, the target
-//                set is every changed .v file (working tree vs HEAD, plus the
-//                branch diff vs merge-base with master).
+//                set is every changed .v and .md file (working tree vs HEAD, plus
+//                the branch diff vs merge-base with master). A .md target goes
+//                to the detectors whose manifest globs name *.md (the claims
+//                detector, which lists a doc's new prose lines), with its base copy.
 //   --base <rev> revision the base copies come from (default: merge-base of
 //                master and HEAD; no base copies if that cannot be computed).
 //   --at <rev>   scan the targets AS THEY WERE at <rev>: the runner extracts
@@ -48,7 +50,7 @@ const manifest = {
 	'detect_unbounded_accum':                          '*.v'
 	'detect_scheduler_field_coverage':                 '*.v'
 	'detect_cache_key_environment':                    '*.v'
-	'detect_external_behavior_claims':                 '*.v'
+	'detect_external_behavior_claims':                 '*.v *.md'
 	'detect_platform_gated_tests':                     '*_test.v'
 	'detect_look_then_recursive_remove':               '*.v'
 	'detect_partial_dedup_return':                     '*.v'
@@ -166,13 +168,13 @@ fn main() {
 		mb := git(['merge-base', 'master', 'HEAD']) or { '' }
 		mut set := map[string]bool{}
 		for l in (git(['diff', '--name-only', 'HEAD']) or { '' }).split_into_lines() {
-			if l.ends_with('.v') {
+			if is_target_kind(l) {
 				set[l] = true
 			}
 		}
 		if mb != '' {
 			for l in (git(['diff', '--name-only', '${mb}...HEAD']) or { '' }).split_into_lines() {
-				if l.ends_with('.v') {
+				if is_target_kind(l) {
 					set[l] = true
 				}
 			}
@@ -202,6 +204,8 @@ fn main() {
 		c.scan_root = os.join_path(c.tmp, 'at')
 		mut dirs := map[string]bool{}
 		for f in c.files {
+			// Each target itself, whatever its kind (a .md doc is in no .v listing).
+			c.extract_at(f)
 			dirs[os.dir(f)] = true
 		}
 		for d in dirs.keys() {
@@ -221,7 +225,7 @@ fn main() {
 		}
 	}
 	if existing.len == 0 {
-		eprintln('run_detectors: no target .v files (pass paths explicitly or make changes first)')
+		eprintln('run_detectors: no target .v or .md files (pass paths explicitly or make changes first)')
 		exit(2)
 	}
 	if c.base_rev != '' {
@@ -304,6 +308,12 @@ fn main() {
 	if flagged > 0 {
 		exit(1)
 	}
+}
+
+// is_target_kind reports whether no-arg mode selects a changed path: V sources,
+// and Markdown docs for the claims detector.
+fn is_target_kind(path string) bool {
+	return path.ends_with('.v') || path.ends_with('.md')
 }
 
 // glob_match matches a basename against a pattern with at most one `*`.
