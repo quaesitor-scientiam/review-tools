@@ -1364,6 +1364,19 @@ For each touched file, after reading it in full:
   present — a same-module white-box test that force-zeroes the OTHER sources
   (`bytes_in_flight = 0`) was needed to isolate the true "nothing else armed"
   scenario and get a clean repro.
+- **A deadline the aggregator returns is serviced in every state it is returned in
+  (rev 125):** the inverse of the rule above. For each deadline the aggregator merges
+  (`compute_next_timeout`'s loss timer, idle timer, closing deadline), write one row per
+  connection state (handshaking, established, closing, draining, closed): does the aggregator
+  return it there, and does the function that services it (`process_timeouts`) act on it
+  there, with the `file:line` of each gate. A state with the first and not the second is a
+  finding: the deadline comes back unchanged on every call, and a caller that sleeps until it
+  busy-loops. Run the row: enter the state, call the aggregator, call the servicer at the
+  deadline, call the aggregator again. Missed on branch `claude/quic-anti-deadlock-pto`
+  (adversarial round 2, 2026-11-22, 2 of 2 refuters, both by a run): the new anti-deadlock
+  timer stayed in `compute_next_timeout` while draining, where `process_timeouts` never runs
+  loss detection; the rev 118 condition table listed RFC conditions, not connection states.
+  Base already returned a PTO deadline while draining with a packet in flight.
 - **Action-before-flag race (write-then-flag TOCTOU):** When a flag records that a
   network action has happened (e.g. `sent_headers = true` set after the HEADERS
   write completes), there is a window between the action completing and the flag
@@ -3533,6 +3546,11 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   `process_timeouts`'s probe space, and setting `handshake_ack_received` after the ACK's
   `pto_count` decision, passed all seven new tests; the only end-to-end probe test had no
   Handshake keys, where the wrong space is the default.
+  Since rev 125 `vprobe mutate` also forces every `if` guard to fire (`if true {`), whatever
+  its body; before, a guard was mutated only when its body returned, continued or broke, so
+  a guard around a write had no mutant. Missed on the same branch (adversarial round 2):
+  `if in_flight { ld.timer_set_at = now }` forced on passed every test, though an ACK-only
+  packet must not restart the anti-deadlock timer (RFC 9002 Appendix A.5).
 - **A changed predicate is tested through every caller, a second run included (rev 107).** When
   a fix changes what a predicate accepts (what marks a root, which names count as ours), grep
   every caller of the predicate and of any function that copies its logic, and give each one a
@@ -3600,7 +3618,9 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   never generated, and no kind cut `inline_asm_raw_has_unread_prefix`'s loop over the
   mnemonic's words; both survived every fixture.
   **Every survivor gets its own disposition, checked (rev 111, verification).** Name a file of
-  `id<TAB>kind<TAB>reason` rows in the spec's `dispositions`; kind is finding, stated (the
+  `id<TAB>key<TAB>kind<TAB>reason` rows in the spec's `dispositions` (the key, printed beside
+  each survivor, names the mutant; since rev 125 a row whose key is not its id's mutant is
+  refused, because a new mutant kind renumbers the ids); kind is finding, stated (the
   reason quotes the docs sentence), limit, or equivalent. An equivalent row quotes, in
   backticks, the code elsewhere in the file that makes the mutant change nothing. The probe
   refuses a range or list in place of one id, an equivalent row that quotes no such code, and

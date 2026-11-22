@@ -82,7 +82,8 @@
 //                is `find` with `{pause}` in front; `head` names the program `build` produces
 //   test, build, mutants [{file, line, find, replace, note}], fail_regex, control_may_fail   mutate
 //   source, functions   mutate: also generate the mutants of these functions of `source`, one per
-//                clause of each `&&`/`||` condition, one per early-return guard, two per lone
+//                clause of each `&&`/`||` condition, one per early-return guard (it never
+//                fires), one per `if` guard of any body (it always fires), two per lone
 //                comparison that is stored or returned (always true, always false), and one per
 //                call of a local `fn name(x string) string` (the argument as it came), two
 //                per `for x in items {` loop (it sees only the first item, only the last), and
@@ -96,10 +97,11 @@
 //                Required whenever `source` is given.
 //   source, functions, test, test_file      trace
 //   source, changed_from, markers, functions, window   siblings
-//   dispositions mutate: a file of `id<TAB>kind<TAB>reason` rows, one per survivor (kind finding,
-//                stated, limit or equivalent; an equivalent row quotes in backticks the code that
-//                makes the mutant change nothing). Without it, survivors print as a template and
-//                the run exits 1.
+//   dispositions mutate: a file of `id<TAB>key<TAB>kind<TAB>reason` rows, one per survivor (kind
+//                finding, stated, limit or equivalent; an equivalent row quotes in backticks the
+//                code that makes the mutant change nothing). The key, printed beside each
+//                survivor, names the mutant; a row whose key is not its id's mutant is refused.
+//                Without the file, survivors print as a template and the run exits 1.
 //   assemblers [{name, cmd}], sequences, wrap, check, work   asm
 //
 // Time limit: every spec command (cmd, prepare, setup, actor, in_pause, build, test, check, the
@@ -126,6 +128,7 @@ import os
 import json2
 import regex
 import time
+import hash.fnv1a
 
 const user_kinds = ['own_file', 'own_dir', 'own_empty_dir', 'link_to_file', 'link_to_dir']
 const root_kinds = ['other_file', 'other_dir', 'other_link_to_file', 'other_link_to_dir', 'root_file',
@@ -143,6 +146,23 @@ struct Mutant {
 	find    string
 	replace string
 	note    string
+mut:
+	// key names the mutant in a disposition row; `assign_mutant_keys` sets it.
+	key string
+}
+
+// assign_mutant_keys gives each mutant a key made of its file's name, its note (function and
+// kind), the text it finds and its replacement, and a count for twins with all four the same.
+// The line and the place in the list are left out, so a row keeps naming its mutant when a new
+// mutant kind renumbers the list (rev 125) or an edit above moves the line.
+fn assign_mutant_keys(mut ms []Mutant) {
+	mut seen := map[string]int{}
+	for mut m in ms {
+		base := '${os.base(m.file)}\x00${m.note}\x00${m.find}\x00${m.replace}'
+		n := seen[base]
+		seen[base] = n + 1
+		m.key = 'k${fnv1a.sum32_string('${base}\x00${n}'):08x}'
+	}
 }
 
 // Shape is a name pattern the code under test parses, such as `{name}-{id}.ext` in folder `at`.
@@ -1814,6 +1834,7 @@ fn release_statement(line string) ?string {
 
 // generate_mutants lists, for the named functions of `path`, one mutant per clause of every
 // condition and one per guard that returns early, so a predicate's checks are covered in full;
+// one per `if` guard, whatever its body, forced to always fire (not a smart cast or binding);
 // both constant answers for every lone comparison that is stored or returned; for every call
 // of a local function that respells a string, the argument as it came; one per statement that
 // only releases a resource, with that statement dropped; and one per statement that only stores
@@ -1853,6 +1874,18 @@ fn generate_mutants(path string, names []string) []Mutant {
 			}
 		}
 		code := line.trim_space()
+		// Forcing a guard on finds a test that never sends the case the guard
+		// keeps out, whatever its body does (rev 125).
+		if code.starts_with('if ') && code.ends_with(' {') && !code.contains(':=')
+			&& !code.contains(' is ') && code != 'if true {' {
+			out << Mutant{
+				file:    path
+				line:    i + 1
+				find:    code
+				replace: 'if true {'
+				note:    '${current}: guard always fires'
+			}
+		}
 		if drops.len == 0 && code.starts_with('if ') && code.ends_with(' {') && !code.contains(':=')
 			&& i + 1 < lines.len {
 			// A comment may stand between the guard and what it does.
@@ -2006,11 +2039,12 @@ fn cmd_mutate(given Spec, list_only bool) int {
 		}
 		spec.mutants << generate_mutants(spec.source, spec.functions)
 	}
+	assign_mutant_keys(mut spec.mutants)
 	if list_only {
-		println('| # | file:line | mutant |')
-		println('|---|---|---|')
+		println('| # | key | file:line | mutant |')
+		println('|---|---|---|---|')
 		for i, m in spec.mutants {
-			println('| ${i + 1} | ${m.file}:${m.line} | `${m.find}` -> `${m.replace}` (${m.note}) |')
+			println('| ${i + 1} | ${m.key} | ${m.file}:${m.line} | `${m.find}` -> `${m.replace}` (${m.note}) |')
 		}
 		return 0
 	}
@@ -2270,9 +2304,9 @@ fn cmd_mutate(given Spec, list_only bool) int {
 	if survivors.len > 0 {
 		if spec.dispositions == '' {
 			println('')
-			println('Every survivor needs its own disposition. Write one `id<TAB>kind<TAB>reason` row per survivor to a file and name it in `dispositions`, then rerun (rev 111). kind is finding, stated (the reason quotes the docs sentence in double quotes), limit, or equivalent (the reason quotes, in backticks, the code elsewhere in the file that makes the mutant change nothing). One row per id: no ranges.')
+			println('Every survivor needs its own disposition. Write one `id<TAB>key<TAB>kind<TAB>reason` row per survivor to a file and name it in `dispositions`, then rerun (rev 111). The key is printed below; it ties the row to its mutant when the ids change (rev 125). kind is finding, stated (the reason quotes the docs sentence in double quotes), limit, or equivalent (the reason quotes, in backticks, the code elsewhere in the file that makes the mutant change nothing). One row per id: no ranges.')
 			for id, m in survivors {
-				println('${id}\t?\t${m.note}')
+				println('${id}\t${m.key}\t?\t${m.note}')
 			}
 			survived++
 		} else {
@@ -2902,9 +2936,12 @@ fn cmd_siblings(spec Spec) int {
 	return if absent > 0 { 1 } else { 0 }
 }
 
-// check_dispositions reads `id<TAB>kind<TAB>reason` rows and prints every survivor without one,
-// every range or list in place of one id, and every reason that does not hold what its kind
-// needs. An `equivalent` row must quote, in backticks, code that is on another line of the
+// check_dispositions reads `id<TAB>key<TAB>kind<TAB>reason` rows and prints every survivor
+// without one, every range or list in place of one id, every row whose key is not that id's
+// mutant, and every reason that does not hold what its kind needs. The key is checked because
+// ids are places in the list: when a new mutant kind renumbered it (rev 125), rows written for
+// other mutants covered five survivors of a run on branch `claude/quic-anti-deadlock-pto`.
+// An `equivalent` row must quote, in backticks, code that is on another line of the
 // mutant's file: on vlang/v PR 31407 a reviewer filed a real gap (a dropped
 // `words.all(...)` clause) in a bulk "equivalent by reading" range. It returns the problem count.
 fn check_dispositions(path string, survivors map[int]Mutant) int {
@@ -2920,8 +2957,8 @@ fn check_dispositions(path string, survivors map[int]Mutant) int {
 			continue
 		}
 		fields := raw.split('\t')
-		if fields.len < 3 || fields[2].trim_space() == '' {
-			println('${path}:${n + 1}: needs id, kind and reason separated by tabs')
+		if fields.len < 4 || fields[3].trim_space() == '' {
+			println('${path}:${n + 1}: needs id, key, kind and reason separated by tabs (the key is printed beside each survivor; rev 125)')
 			bad++
 			continue
 		}
@@ -2937,10 +2974,22 @@ fn check_dispositions(path string, survivors map[int]Mutant) int {
 			bad++
 			continue
 		}
-		kind := fields[1].trim_space()
-		reason := fields[2..].join(' ').trim_space()
+		key := fields[1].trim_space()
+		kind := fields[2].trim_space()
+		reason := fields[3..].join(' ').trim_space()
 		m := survivors[id] or {
 			println('${path}:${n + 1}: ${id} did not survive this run')
+			bad++
+			continue
+		}
+		if key != m.key {
+			mut now := ''
+			for other_id, other in survivors {
+				if other.key == key {
+					now = "; the row's mutant is now ${other_id}"
+				}
+			}
+			println('${path}:${n + 1}: ${id} is now ${m.key} (${m.note}), not ${key}${now}: read the row again for the mutant it names')
 			bad++
 			continue
 		}
@@ -2988,7 +3037,7 @@ fn check_dispositions(path string, survivors map[int]Mutant) int {
 	}
 	for id, m in survivors {
 		if id !in seen {
-			println('survivor ${id} has no disposition (${m.note})')
+			println('survivor ${id} has no disposition (${m.key}, ${m.note})')
 			bad++
 		}
 	}

@@ -42,9 +42,13 @@ fn test_check_dispositions_reads_each_row_and_checks_what_its_kind_needs() {
 		find: ' && b'
 		note: 'f: clause dropped'
 	}
+	mut keyed := [first, second]
+	assign_mutant_keys(mut keyed)
+	k1 := keyed[0].key
+	k2 := keyed[1].key
 	both := {
-		1: first
-		2: second
+		1: keyed[0]
+		2: keyed[1]
 	}
 	check := fn [both] (name string, rows string) int {
 		path := tmp_file(name, rows)
@@ -57,18 +61,81 @@ fn test_check_dispositions_reads_each_row_and_checks_what_its_kind_needs() {
 		os.rm(source) or {}
 	}
 	// Every row is read, the first and the last; blank lines and `#` lines are skipped.
-	assert check('ok.tsv', '# two survivors\n\n1\tlimit\tno test yet\n2\tfinding\ta real gap\n') == 0
-	assert check('first_only.tsv', '1\tlimit\tno test yet\n') == 1
-	assert check('last_only.tsv', '2\tlimit\tno test yet\n') == 1
-	// A row needs an id, a kind and a reason that is not blank. Such a row is one problem, and
-	// the survivor it leaves without a disposition is another.
-	assert check('no_reason.tsv', '1\tlimit\t \n2\tlimit\tx\n') == 2
-	assert check('two_fields.tsv', '1\tlimit\n2\tlimit\tx\n') == 2
+	assert check('ok.tsv', '# two survivors\n\n1\t${k1}\tlimit\tno test yet\n2\t${k2}\tfinding\ta real gap\n') == 0
+	assert check('first_only.tsv', '1\t${k1}\tlimit\tno test yet\n') == 1
+	assert check('last_only.tsv', '2\t${k2}\tlimit\tno test yet\n') == 1
+	// A row needs an id, a key, a kind and a reason that is not blank. Such a row is one problem,
+	// and the survivor it leaves without a disposition is another.
+	assert check('no_reason.tsv', '1\t${k1}\tlimit\t \n2\t${k2}\tlimit\tx\n') == 2
+	assert check('two_fields.tsv', '1\t${k1}\tlimit\n2\t${k2}\tlimit\tx\n') == 2
+	// A row in the old `id<TAB>kind<TAB>reason` form names no mutant, so it is refused.
+	assert check('no_key.tsv', '1\tlimit\tno test yet\n2\t${k2}\tlimit\tx\n') == 2
 	// An equivalent row quotes code that is in the file, on another line than the mutant's.
-	assert check('eq_ok.tsv', '1\tequivalent\tsee `return a`\n2\tlimit\tx\n') == 0
-	assert check('eq_same_line.tsv', '1\tequivalent\tsee `if a && b {`\n2\tlimit\tx\n') == 1
-	assert check('eq_not_in_file.tsv', '1\tequivalent\tsee `zzz_not_there`\n2\tlimit\tx\n') == 1
-	assert check('eq_empty_quote.tsv', '1\tequivalent\tsee `` nothing quoted\n2\tlimit\tx\n') == 1
+	assert check('eq_ok.tsv', '1\t${k1}\tequivalent\tsee `return a`\n2\t${k2}\tlimit\tx\n') == 0
+	assert check('eq_same_line.tsv', '1\t${k1}\tequivalent\tsee `if a && b {`\n2\t${k2}\tlimit\tx\n') == 1
+	assert check('eq_not_in_file.tsv', '1\t${k1}\tequivalent\tsee `zzz_not_there`\n2\t${k2}\tlimit\tx\n') == 1
+	assert check('eq_empty_quote.tsv', '1\t${k1}\tequivalent\tsee `` nothing quoted\n2\t${k2}\tlimit\tx\n') == 1
+	// When a new mutant kind renumbers the mutants, a row keeps its key: written for mutant 1,
+	// it is refused once number 1 is another mutant, and each survivor is then left without one.
+	renumbered := {
+		1: keyed[1]
+		2: keyed[0]
+	}
+	swapped := tmp_file('swapped.tsv', '1\t${k1}\tlimit\tno test yet\n2\t${k2}\tfinding\ta real gap\n')
+	defer {
+		os.rm(swapped) or {}
+	}
+	assert check_dispositions(swapped, renumbered) == 4
+}
+
+fn test_mutant_keys_name_the_mutant_not_its_place_in_the_list() {
+	a := Mutant{
+		file: '/x/one.v'
+		line: 10
+		find: 'a && '
+		note: 'f: clause dropped'
+	}
+	moved := Mutant{
+		...a
+		line: 14
+	}
+	other_fn := Mutant{
+		...a
+		note: 'g: clause dropped'
+	}
+	other_replace := Mutant{
+		...a
+		replace: 'true'
+	}
+	other_file := Mutant{
+		...a
+		file: '/x/two.v'
+	}
+	// Each part of the key counts on its own: each mutant is keyed in a list of its own, so the
+	// twin count cannot make two keys differ.
+	key_of := fn (m Mutant) string {
+		mut one := [m]
+		assign_mutant_keys(mut one)
+		return one[0].key
+	}
+	assert key_of(other_file) != key_of(a)
+	assert key_of(other_fn) != key_of(a)
+	assert key_of(other_replace) != key_of(a)
+	assert key_of(moved) == key_of(a)
+	mut first := [a, other_fn]
+	assign_mutant_keys(mut first)
+	// The same mutant keeps its key when a mutant is put before it or its line moves.
+	mut second := [other_replace, other_fn, moved]
+	assign_mutant_keys(mut second)
+	assert second[2].key == first[0].key
+	assert second[1].key == first[1].key
+	assert first[0].key != first[1].key
+	assert second[0].key != first[0].key
+	// Two mutants that look the same (one text twice in one function) get keys of their own.
+	mut twins := [a, moved]
+	assign_mutant_keys(mut twins)
+	assert twins[0].key != twins[1].key
+	assert twins[0].key.len > 0
 }
 
 fn test_loop_iterable_wants_a_for_loop_over_a_named_value() {
@@ -105,22 +172,26 @@ fn test_a_dropped_release_can_not_be_filed_as_equivalent() {
 		find: 'open()'
 		note: 'list: clause dropped'
 	}
-	as_equivalent := tmp_file('eq.tsv', '1\tequivalent\tnothing reads it, see `println(h)`\n')
-	as_limit := tmp_file('limit.tsv', '1\tlimit\tno test counts handles\n')
+	mut keyed := [release, clause]
+	assign_mutant_keys(mut keyed)
+	as_equivalent := tmp_file('eq.tsv', '1\t${keyed[0].key}\tequivalent\tnothing reads it, see `println(h)`\n')
+	as_limit := tmp_file('limit.tsv', '1\t${keyed[0].key}\tlimit\tno test counts handles\n')
+	clause_equivalent := tmp_file('eq_clause.tsv', '1\t${keyed[1].key}\tequivalent\tnothing reads it, see `println(h)`\n')
 	defer {
 		os.rm(source) or {}
 		os.rm(as_equivalent) or {}
 		os.rm(as_limit) or {}
+		os.rm(clause_equivalent) or {}
 	}
 	assert check_dispositions(as_equivalent, {
-		1: release
+		1: keyed[0]
 	}) == 1
 	assert check_dispositions(as_limit, {
-		1: release
+		1: keyed[0]
 	}) == 0
 	// Another kind of mutant may still be equivalent, when the reason quotes code of the file.
-	assert check_dispositions(as_equivalent, {
-		1: clause
+	assert check_dispositions(clause_equivalent, {
+		1: keyed[1]
 	}) == 0
 }
 
@@ -196,4 +267,16 @@ fn test_generate_mutants_drops_each_field_write_of_a_named_function() {
 	assert writes.map(it.line) == [2, 4]
 	assert writes.map(it.find) == ['c.acked = true', 'c.at = now']
 	assert writes.all(it.replace == '')
+}
+
+fn test_generate_mutants_forces_each_guard_of_a_named_function_to_fire() {
+	path := os.join_path(os.vtmp_dir(), 'vprobe_always_${os.getpid()}.v')
+	os.write_file(path, 'fn sent(mut c Conn, in_flight bool, now u64) {\n\tif in_flight {\n\t\tc.at = now\n\t}\n\tif c.n > 0 && c.open {\n\t\treturn\n\t}\n\tif x := c.next {\n\t\tc.at = x\n\t}\n\tif c.v is Foo {\n\t\tc.at = 1\n\t}\n\tif true {\n\t\tc.at = 2\n\t}\n\tfor v in c.items {\n\t\tc.at = v\n\t}\n\tif c.n == 0 { return }\n}\n\nfn other(mut c Conn, b bool) {\n\tif b {\n\t\tc.at = 0\n\t}\n}\n')!
+	defer {
+		os.rm(path) or {}
+	}
+	always := generate_mutants(path, ['sent']).filter(it.note.contains('guard always fires'))
+	assert always.map(it.line) == [2, 5]
+	assert always.map(it.find) == ['if in_flight {', 'if c.n > 0 && c.open {']
+	assert always.all(it.replace == 'if true {')
 }
