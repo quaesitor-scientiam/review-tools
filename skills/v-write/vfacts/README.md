@@ -18,9 +18,10 @@ foreach ($p in 'collides\mymod|cmd/cli', 'collides\mymod|cmd/mymod', 'control\my
 On another machine use its own `v`. In WSL, copy this folder to a Linux folder first and run
 `v run` on each file there.
 
-Add `-showcc` to a run to see which compiler built it: a `C compiler cmd:` line means the
-launcher fell back to the old compiler, and that run says nothing about the current one. (Seen
-on 2026-11-22 with `-old-compiler -showcc`; none of the runs below printed it.)
+Add `-showcc` to a run to see the C command it used, on a line that starts with `  >`. Current V
+has no fallback to the old compiler (vlang/v#32745 removed it). On an older build, a line
+containing `retrying with` (the text V's own driver tests check for) marks a run that fell back,
+and that run says nothing about the current compiler. None of the runs below printed it.
 
 ## Output on 2026-11-22 (Windows `V 0.5.2 9621aa0` with tcc, and Ubuntu WSL `V 0.5.2 0eab96b`)
 
