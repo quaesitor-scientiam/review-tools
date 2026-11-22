@@ -87,7 +87,8 @@
 //                call of a local `fn name(x string) string` (the argument as it came), two
 //                per `for x in items {` loop (it sees only the first item, only the last), and
 //                one per statement that only releases a resource (a close, a free, an unlock),
-//                with that statement dropped.
+//                with that statement dropped, and one per statement that only stores a value in
+//                a field (`a.b = x`), with that statement dropped.
 //                `--list` prints them unrun.
 //   changed_from mutate: the same file at the revision the last mutation run covered (the merge
 //                base for the first run). Every function whose text differs is added to
@@ -1754,6 +1755,33 @@ fn loop_iterable(line string) ?string {
 	return iterable
 }
 
+// field_write returns the statement on `line` when all it does is store a value in a field
+// (`a.b = x`, `a.b[k] = x`). Dropping it is a mutant no condition-based kind lists: a field another
+// function reads later, such as a flag or a timestamp, can be left unset and every test still pass
+// (vlang branch claude/quic-anti-deadlock-pto, adversarial round 1, 2026-11-22: the
+// `ld.timer_set_at = now` of an ACK and the `c.handshake_ack_received = true` it depends on).
+// A value that goes on to a further line (`a.b = Foo{`) is left alone: dropping one line of it
+// would not compile.
+fn field_write(line string) ?string {
+	code := line.trim_space()
+	if code.starts_with('//') {
+		return none
+	}
+	at := code.index(' = ') or { return none }
+	lhs := code[..at]
+	// Never empty: `code` is trimmed, so something follows the ` = `.
+	rhs := code[at + 3..].trim_space()
+	if !lhs.contains('.') || rhs[rhs.len - 1] in [`{`, `(`, `[`, `,`] {
+		return none
+	}
+	for ch in lhs {
+		if !(ch.is_letter() || ch.is_digit() || ch in [`_`, `.`, `[`, `]`]) {
+			return none
+		}
+	}
+	return code
+}
+
 // release_statement returns the statement on `line` when all it does is give a resource back: close
 // a handle, free memory, release a lock. Dropping it is a mutant no condition-based kind lists, and
 // a test that only compares results passes without it (vlang branch
@@ -1785,8 +1813,9 @@ fn release_statement(line string) ?string {
 // generate_mutants lists, for the named functions of `path`, one mutant per clause of every
 // condition and one per guard that returns early, so a predicate's checks are covered in full;
 // both constant answers for every lone comparison that is stored or returned; for every call
-// of a local function that respells a string, the argument as it came; and one per statement
-// that only releases a resource, with that statement dropped.
+// of a local function that respells a string, the argument as it came; one per statement that
+// only releases a resource, with that statement dropped; and one per statement that only stores
+// a value in a field, with that statement dropped.
 fn generate_mutants(path string, names []string) []Mutant {
 	text := os.read_file(path) or {
 		fail('cannot read ${path}: ${err}')
@@ -1851,6 +1880,17 @@ fn generate_mutants(path string, names []string) []Mutant {
 					find:    release
 					replace: ''
 					note:    '${current}: the release is dropped'
+				}
+			}
+		}
+		if write := field_write(line) {
+			if line.count(write) == 1 {
+				out << Mutant{
+					file:    path
+					line:    i + 1
+					find:    write
+					replace: ''
+					note:    '${current}: the field write is dropped'
 				}
 			}
 		}

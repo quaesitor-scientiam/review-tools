@@ -164,3 +164,36 @@ fn test_generate_mutants_drops_each_release_of_a_named_function() {
 	assert releases[0].find == 'C.FindClose(h)'
 	assert releases[0].replace == ''
 }
+
+fn test_field_write_takes_only_a_statement_that_stores_in_a_field() {
+	assert field_write('\tld.timer_set_at = now') or { '' } == 'ld.timer_set_at = now'
+	assert field_write('\t\tc.handshake_ack_received = true') or { '' } == 'c.handshake_ack_received = true'
+	assert field_write('\tc.peer_cids[seq] = next.clone()') or { '' } == 'c.peer_cids[seq] = next.clone()'
+	// Not a field: a local name, a declaration, a comparison, a compound operator.
+	assert field_write('\tx = 1') == none
+	assert field_write('\tx := a.b') == none
+	assert field_write('\tif a.b == c {') == none
+	assert field_write('\ta.b += 1') == none
+	assert field_write('\tok := a.b != c') == none
+	// Something besides a name before the ` = `, at its start, middle and end.
+	assert field_write('\t*a.b = x') == none
+	assert field_write('\tunsafe { a.b = x }') == none
+	assert field_write('\ta.b() = x') == none
+	// A comment, and a value that goes on to a further line.
+	assert field_write('\t// c.x = 1') == none
+	assert field_write('\tc.state = Foo{') == none
+	assert field_write('\tc.x = compute(a,') == none
+	assert field_write('\tc.x = match y {') == none
+}
+
+fn test_generate_mutants_drops_each_field_write_of_a_named_function() {
+	path := os.join_path(os.vtmp_dir(), 'vprobe_field_${os.getpid()}.v')
+	os.write_file(path, 'fn ack(mut c Conn, now u64) {\n\tc.acked = true\n\tn := c.count\n\tc.at = now\n}\n\nfn other(mut c Conn) {\n\tc.acked = false\n}\n')!
+	defer {
+		os.rm(path) or {}
+	}
+	writes := generate_mutants(path, ['ack']).filter(it.note.contains('the field write is dropped'))
+	assert writes.map(it.line) == [2, 4]
+	assert writes.map(it.find) == ['c.acked = true', 'c.at = now']
+	assert writes.all(it.replace == '')
+}

@@ -1711,6 +1711,22 @@ the matrix row read "Known limitation ... ADVISORY" and
 frames yet". The same row label also hid the client's lost STREAM,
 RESET_STREAM, MAX_DATA, MAX_STREAM_DATA and STREAMS_BLOCKED frames (now a GAP
 row).
+**A condition from RFC pseudocode is copied, not replaced by a stand-in
+(rev 118):** when the diff implements an RFC's pseudocode (RFC 9002 Appendix
+A, RFC 9204's encoder steps), write one row per condition the pseudocode
+tests: its words quoted, the code expression that stands for it, and the
+`file:line`. When the code reads a different quantity than the words name
+(bytes in flight for "no ack-eliciting packets in flight", a count for "is
+empty"), the row names an input where the two differ, or quotes the code that
+makes them always equal. A GAP row of the matrix that names a function the
+diff touches is one of these rows: its own wording is the predicate to
+compare, and the row is closed only with the comparison written out. Missed
+on branch `claude/quic-anti-deadlock-pto` (adversarial round 1, 2026-11-22,
+confirmed 12 of 12 refuters): `next_timeout` armed the anti-deadlock timer
+when `bytes_in_flight == 0`, but a client's ACK-only Initial is padded and so
+in flight without being ack-eliciting; the timer then fired at time 0. The
+matrix row it was fixing said "with nothing ack-eliciting in flight" and
+named that ACK-only case, and the inline pass never compared the two.
 
 The specific H2 checks below are the high-frequency subset:
 
@@ -3423,6 +3439,19 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   code is covered by default. Missed twice on vlang/v#31848 (adversarial rounds 4 and 5,
   2026-11-11): the copies test's `shared` list was extended after round 4, and round 5 found
   a const, two structs and three helpers still missing from it.
+- **A new argument is mutated at each call site, and a write the callee reads is moved past
+  the call (rev 118).** `vprobe mutate` changes conditions, loops, releases and field writes;
+  it does not change what a call is given or the order of two statements. So for each
+  parameter the diff adds, give the spec one hand mutant per call site that passes the value
+  the old code meant (`none`, `0`, `false`), and for each field the diff writes just before a
+  call that reads it (a flag, then a function that asks for it), one hand mutant that moves
+  the write after the call. Each needs a test that it fails, read by name in the log: a
+  default the callee also reaches by another path (an `.initial` space that is the default
+  anyway) lets a test of the other path pass. Missed on branch
+  `claude/quic-anti-deadlock-pto` (adversarial round 1, 2026-11-22): passing `none` as
+  `process_timeouts`'s probe space, and setting `handshake_ack_received` after the ACK's
+  `pto_count` decision, passed all seven new tests; the only end-to-end probe test had no
+  Handshake keys, where the wrong space is the default.
 - **A changed predicate is tested through every caller, a second run included (rev 107).** When
   a fix changes what a predicate accepts (what marks a root, which names count as ours), grep
   every caller of the predicate and of any function that copies its logic, and give each one a
