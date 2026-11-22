@@ -46,11 +46,18 @@ With no arguments the runner also fails for any detector on disk that has neithe
 `tests/<name>/` directory nor a row in `UNFIXTURED.md`, so a new detector cannot be
 added without a fixture or a written reason; for any detector that calls `git`
 (the runner owns all git access); and it runs a smoke test of `run_detectors.sh`
-itself on a throwaway repo (no-arg change detection, `--at <rev>`, path
+itself on throwaway repos (no-arg change detection, `--at <rev>`, path
 normalisation; and for rev 120, `.md` files changed on the branch and in the
 working tree that must reach the claims detector with their base copies, a changed
 file of another kind that no-arg mode leaves out, `--at` with two targets, and
-`--base`).
+`--base`). Since rev 122 it also covers the `--only`, `--base=` and `--at=` forms,
+the sibling files `--at` extracts, a missing named target and one no detector takes,
+the base when there is no `master` (`main`, then `origin/HEAD`), a cold cache that
+builds only the needed detector, builds planted in the shared temp folder (never
+run), the private per-run folder (mode 0700, random name), and its removal after
+every run, flagged and failed ones included.
+`FIXTURE_SMOKE_ONLY=1 bash tests/run_fixtures.sh` runs everything but the
+per-detector cases, for a mutation run over `run_detectors.v`.
 
 Every detector is a V program in `detectors/<name>.v`, compiled once per run
 (cases are labelled `[v]`); a `.sh`/`.ps1` twin in `skills/code-review/`, if one

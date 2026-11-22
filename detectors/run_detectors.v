@@ -2,9 +2,12 @@
 // applicable mechanical review detector in one shot, with no bash involved.
 //
 // The runner OWNS ALL GIT ACCESS. It computes the target file list and the base
-// revision once, extracts base-revision copies into a temp dir, compiles each
-// detectors/detect_*.v once (cached by source hash under the OS temp dir) and
-// hands every detector plain paths only:
+// revision once, extracts base-revision copies into a new private folder (mode
+// 0700, a random name under the OS temp dir), compiles each detectors/detect_*.v
+// the run needs once (cached by source hash in the user's own cache folder,
+// os.cache_dir()/review-tools-bin, never in the shared temp dir, where another
+// account could plant a build under the predictable name) and hands every
+// detector plain paths only:
 //
 //     detect_x <file> <base_copy_or_empty>
 //
@@ -14,11 +17,14 @@
 //   file.v ...   target files (repo-relative or absolute; Windows separators and
 //                CRLF-polluted args are normalised). With no files, the target
 //                set is every changed .v and .md file (working tree vs HEAD, plus
-//                the branch diff vs merge-base with master). A .md target goes
-//                to the detectors whose manifest globs name *.md (the claims
-//                detector, which lists a doc's new prose lines), with its base copy.
-//   --base <rev> revision the base copies come from (default: merge-base of
-//                master and HEAD; no base copies if that cannot be computed).
+//                the branch diff vs the merge base with the default branch). A .md
+//                target goes to the detectors whose manifest globs name *.md (the
+//                claims detector, which lists a doc's new prose lines), with its
+//                base copy. A named file that does not exist is reported as
+//                skipped, and a target no detector takes says so.
+//   --base <rev> revision the base copies come from (default: the merge base of
+//                HEAD and the default branch: master, else main, else the branch
+//                origin/HEAD names; no base copies if none of them exists).
 //   --at <rev>   scan the targets AS THEY WERE at <rev>: the runner extracts
 //                every target plus the other .v files of each target's directory
 //                (and cmd/tools/vtest-self.v) at <rev> into a temp tree that
@@ -37,6 +43,7 @@
 module main
 
 import os
+import crypto.rand
 import crypto.sha256
 
 // Manifest: detector stem -> space-separated basename globs (one `*` each)
@@ -161,11 +168,13 @@ fn main() {
 		exit(2)
 	}
 
-	// Targets.
+	// Targets. The base branch is master, else main, else the branch origin/HEAD
+	// names: without a fallback a repo whose default branch is main had no base.
+	base_branch := default_base_branch()
+	mb := if base_branch != '' { git(['merge-base', base_branch, 'HEAD']) or { '' } } else { '' }
 	if args.len > 0 {
 		c.files = args.map(normalise(c.repo_root, it))
 	} else {
-		mb := git(['merge-base', 'master', 'HEAD']) or { '' }
 		mut set := map[string]bool{}
 		for l in (git(['diff', '--name-only', 'HEAD']) or { '' }).split_into_lines() {
 			if is_target_kind(l) {
@@ -182,24 +191,24 @@ fn main() {
 		c.files = set.keys()
 		c.files.sort()
 	}
-	if c.base_rev == '' {
-		c.base_rev = git(['merge-base', 'master', 'HEAD']) or { '' }
+	mut base_from := ''
+	if c.base_rev == '' && mb != '' {
+		c.base_rev = mb
+		base_from = base_branch
 	}
 
 	// Temp dir, extraction.
-	c.tmp = os.join_path(os.temp_dir(), 'run_detectors_${os.getpid()}')
-	os.mkdir_all(c.tmp) or {
-		eprintln('run_detectors: cannot create ${c.tmp}')
+	c.tmp = make_private_dir(os.temp_dir()) or {
+		eprintln('run_detectors: ${err}')
 		exit(2)
 	}
-	defer {
-		os.rmdir_all(c.tmp) or {}
-	}
+	// From here on every exit goes through c.quit, which removes the folder: V's
+	// exit() runs no defer, so a defer left it behind after every flagged run.
 	c.scan_root = c.repo_root
 	if c.at_rev != '' {
 		git(['rev-parse', '--verify', '--quiet', '${c.at_rev}^{commit}']) or {
 			eprintln("run_detectors: --at: unknown revision '${c.at_rev}'")
-			exit(2)
+			c.quit(2)
 		}
 		c.scan_root = os.join_path(c.tmp, 'at')
 		mut dirs := map[string]bool{}
@@ -219,14 +228,21 @@ fn main() {
 		c.extract_at('cmd/tools/vtest-self.v')
 	}
 	mut existing := []string{}
+	mut skipped := []string{}
 	for f in c.files {
 		if f != '' && os.is_file(os.join_path(c.scan_root, f)) {
 			existing << f
+		} else if args.len > 0 {
+			skipped << f
 		}
 	}
+	missing := if c.at_rev != '' { 'not in ${c.at_rev}' } else { 'no such file' }
 	if existing.len == 0 {
+		for f in skipped {
+			eprintln('run_detectors: skipped: ${f} (${missing})')
+		}
 		eprintln('run_detectors: no target .v or .md files (pass paths explicitly or make changes first)')
-		exit(2)
+		c.quit(2)
 	}
 	if c.base_rev != '' {
 		for f in existing {
@@ -243,30 +259,54 @@ fn main() {
 	c.vexe = find_v(c.repo_root)
 	if c.vexe == '' {
 		eprintln('run_detectors: no V compiler found (set DETECT_V, or run from a repo with ./v)')
-		exit(2)
+		c.quit(2)
 	}
 	det_dir := os.dir(os.real_path(@FILE))
-	c.compile_all(det_dir)
-
-	os.chdir(c.scan_root) or { exit(2) }
-
-	// Run.
 	mut names := manifest.keys()
 	names.sort()
+	// Only the detectors this run can start are built: a glob names a target, and
+	// --only lets the detector run.
+	mut needed := map[string]bool{}
+	for det in names {
+		if c.only != '' && !det.contains(c.only) {
+			continue
+		}
+		globs := manifest[det].split(' ')
+		for f in existing {
+			bn := os.base(f)
+			if globs.any(glob_match(it, bn)) {
+				needed[det] = true
+				break
+			}
+		}
+	}
+	c.compile_needed(det_dir, needed)
+
+	os.chdir(c.scan_root) or { c.quit(2) }
+
+	// Run.
 	mut flagged := 0
 	mut ran := 0
 	mut skipped_all := true
 	suffix := if c.at_rev != '' { ' @ ${c.at_rev}' } else { '' }
-	base_label := if c.base_rev != '' { c.base_rev } else { 'none' }
+	mut base_label := if c.base_rev != '' { c.base_rev } else { 'none' }
+	if base_from != '' {
+		base_label += ' (merge base of ${base_from} and HEAD)'
+	}
 	println('=== run_detectors: ${existing.len} target file(s)${suffix}, base ${base_label} ===')
+	for f in skipped {
+		println('--- skipped: ${f} (${missing})')
+	}
 	for f in existing {
 		println('--- target: ${f}')
 		bn := os.base(f)
+		mut applies := false
 		for det in names {
-			if c.only != '' && !det.contains(c.only) {
+			if !manifest[det].split(' ').any(glob_match(it, bn)) {
 				continue
 			}
-			if !manifest[det].split(' ').any(glob_match(it, bn)) {
+			applies = true
+			if c.only != '' && !det.contains(c.only) {
 				continue
 			}
 			bin := c.bins[det] or { continue }
@@ -299,15 +339,59 @@ fn main() {
 				}
 			}
 		}
+		if !applies {
+			println('  (no detector applies to this file)')
+		}
 	}
 	println('=== summary: ${ran} detector runs, ${flagged} flagged ===')
 	if skipped_all {
 		eprintln('(no detector matched any target file — nothing was checked)')
-		exit(2)
+		c.quit(2)
 	}
-	if flagged > 0 {
-		exit(1)
+	c.quit(if flagged > 0 { 1 } else { 0 })
+}
+
+// quit removes the per-run folder and ends the run with `code`. V's exit() runs no
+// defer, so before rev 122 a flagged or failed run left the folder, with the base
+// copies of its targets, in the temp dir. The folder is left from the repo root:
+// Windows cannot remove a folder that is the current one (`--at` scans inside it).
+@[noreturn]
+fn (c &Ctx) quit(code int) {
+	os.chdir(c.repo_root) or {}
+	os.rmdir_all(c.tmp) or {}
+	exit(code)
+}
+
+// default_base_branch returns the branch the no-arg target set and the base copies
+// are measured from: `master`, else `main`, else the branch `origin/HEAD` names
+// (such as `origin/trunk`), or '' when none of them names a commit.
+fn default_base_branch() string {
+	for cand in ['master', 'main'] {
+		if _ := git(['rev-parse', '--verify', '--quiet', '${cand}^{commit}']) {
+			return cand
+		}
 	}
+	remote := git(['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']) or {
+		return ''
+	}
+	if _ := git(['rev-parse', '--verify', '--quiet', '${remote}^{commit}']) {
+		return remote
+	}
+	return ''
+}
+
+// make_private_dir makes a new folder under `parent` that only this user can use
+// (mode 0700) and whose name nobody can predict, and fails rather than use a path
+// that already exists: in a shared temp folder another account could have made
+// the old `run_detectors_<pid>` first, or put a link there.
+fn make_private_dir(parent string) !string {
+	// bytes, not read: read's signature changed between V releases, bytes did not.
+	suffix := rand.bytes(8) or { return error('cannot read random bytes: ${err}') }
+	path := os.join_path(parent, 'run_detectors_${os.getpid()}_${suffix.hex()}')
+	os.mkdir(path, mode: 0o700) or {
+		return error('cannot create a private folder ${path}: ${err}')
+	}
+	return path
 }
 
 // is_target_kind reports whether no-arg mode selects a changed path: V sources,
@@ -467,11 +551,15 @@ fn find_v(repo_root string) string {
 	return os.find_abs_path_of_executable('v') or { '' }
 }
 
-// compile_all builds every detectors/detect_*.v once into a cache keyed by the
-// source hash, so repeated runs do not recompile unchanged detectors.
-fn (mut c Ctx) compile_all(det_dir string) {
-	cache := os.join_path(os.temp_dir(), 'review-tools-bin')
-	os.mkdir_all(cache) or {}
+// compile_needed builds each detector named in `needed` (detectors/<stem>.v) once
+// into a cache keyed by the source hash, so repeated runs do not recompile
+// unchanged detectors. The cache is in the user's own cache folder: a build found
+// there is run as this user, so it must not sit where another account can write.
+fn (mut c Ctx) compile_needed(det_dir string, needed map[string]bool) {
+	cache := os.join_path(os.cache_dir(), 'review-tools-bin')
+	os.mkdir_all(cache, mode: 0o700) or {
+		eprintln('run_detectors: cannot create ${cache}: ${err}')
+	}
 	// Compile from the cache dir, not from the target repo: with the vlang
 	// checkout as cwd, V resolves vlib through that checkout, which over a WSL
 	// /mnt mount made every compile take ~20 s instead of ~1.5 s.
@@ -479,13 +567,10 @@ fn (mut c Ctx) compile_all(det_dir string) {
 	defer {
 		os.chdir(c.repo_root) or {}
 	}
-	mut srcs := os.ls(det_dir) or { []string{} }
-	srcs.sort()
-	for name in srcs {
-		if !name.starts_with('detect_') || !name.ends_with('.v') {
-			continue
-		}
-		stem := name[..name.len - 2]
+	mut stems := needed.keys()
+	stems.sort()
+	for stem in stems {
+		name := stem + '.v'
 		src := os.join_path(det_dir, name)
 		content := os.read_file(src) or { continue }
 		key := sha256.hexhash(content)[..16]

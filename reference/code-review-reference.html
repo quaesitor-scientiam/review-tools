@@ -114,7 +114,7 @@
 <body>
 
 <h1>/code-review Skill Reference</h1>
-<p class="subtitle">Plugin skill <strong>/review-tools:vreview</strong> at <code style="font-size:11px">${CLAUDE_PLUGIN_ROOT}/skills/vreview/SKILL.md</code> (git repo <code style="font-size:11px">S:\repo\review-tools</code>). Detector scripts live at <code style="font-size:11px">${CLAUDE_PLUGIN_ROOT}/detectors/</code>; run them with <code style="font-size:11px">run_detectors.sh</code>. Generated 2026-11-22, rev 121 (see Changelog tab for the full revision-by-revision story). H2 conformance matrix status: server h2spec baseline EMPTY, 146/146 cases pass.</p>
+<p class="subtitle">Plugin skill <strong>/review-tools:vreview</strong> at <code style="font-size:11px">${CLAUDE_PLUGIN_ROOT}/skills/vreview/SKILL.md</code> (git repo <code style="font-size:11px">S:\repo\review-tools</code>). Detector scripts live at <code style="font-size:11px">${CLAUDE_PLUGIN_ROOT}/detectors/</code>; run them with <code style="font-size:11px">run_detectors.sh</code>. Generated 2026-11-22, rev 122 (see Changelog tab for the full revision-by-revision story). H2 conformance matrix status: server h2spec baseline EMPTY, 146/146 cases pass.</p>
 
 <div class="meta-grid">
   <div class="meta-item"><span class="meta-label">Primary Use</span>Execute a review workflow quickly: scope, derive contracts, fresh-eyes, detectors, scan A-K angles, domain gates, triage, verify, regress.</div>
@@ -749,7 +749,8 @@
         <div class="check-item"><span class="check-bullet">&bull;</span>The ledger has one row per line the detector lists, counted against its count (rev 111)</div>
 <div class="check-item"><span class="check-bullet">&bull;</span>A sentence that discloses one consequence covers one consequence: list each kind the mechanism records, what it can be when used and who can change it, run base and head on every pair, and name every pair that differs (rev 115)</div>
 <div class="check-item"><span class="check-bullet">&bull;</span>A sentence about what the program does gets a row per platform branch and per route that reaches the behaviour; a line printed on every system and true on one is a finding (rev 119)</div>
-<div class="check-item"><span class="check-bullet">&bull;</span>The batch runs the claims detector on each touched <code>.md</code> file; the log names a base (<code>--base</code> where the default branch is not <code>master</code>) and has the detector&rsquo;s line under every <code>.md</code> target, and that count is the docs rows&rsquo; count (rev 120)</div>
+<div class="check-item"><span class="check-bullet">&bull;</span>The batch runs the claims detector on each touched <code>.md</code> file; the log names a base (<code>--base</code> where there is no <code>master</code>, <code>main</code> or <code>origin/HEAD</code>, rev 122) and has the detector&rsquo;s line under every <code>.md</code> target, and that count is the docs rows&rsquo; count (rev 120)</div>
+<div class="check-item"><span class="check-bullet">&bull;</span>The batch takes its base from <code>master</code>, else <code>main</code>, else <code>origin/HEAD</code>; a target it marks <code>(no detector applies to this file)</code> gets rows by hand, and a <code>--- skipped:</code> name is checked for its spelling (rev 122)</div>
       </div>
       <span class="miss-badge" data-angle="I" data-note="(newly promoted rev 44)">? misses from this angle</span>
     </div>
@@ -865,7 +866,7 @@
 
 <!-- DETECTORS -->
 <div class="tab-content" id="tab-detectors">
-  <p style="font-size:11px;color:#555;margin-bottom:14px;">Mechanical checks that exit non-zero on a defect. Run these; do not eyeball. Located at <code>${CLAUDE_PLUGIN_ROOT}/skills/code-review/</code> in the repo.</p>
+  <p style="font-size:11px;color:#555;margin-bottom:14px;">Mechanical checks that exit non-zero on a defect. Run these; do not eyeball. Located at <code>${CLAUDE_PLUGIN_ROOT}/detectors/</code>; <code>run_detectors.v</code> runs each one whose manifest glob matches a target, and builds only those (rev 122, into <code>~/.cache/review-tools-bin</code>).</p>
   <div class="section">
     <div class="section-title">Detector Groups</div>
     <div class="quick-links" id="detector-filters">
@@ -1412,6 +1413,94 @@
       <div><span class="miss-badge">Caught: PCH key without the include environment (#31581, comment 4433887205). Phase-R verified: exit 1 on 035f15b229's windows_pch.v, exit 0 on 67dbd968cd's. On 67dbd968cd's driver.v it lists 3 candidates, triaged 2026-11-01: v3_cached_object_compile_signature is REAL on Windows (every unit includes the SDK prelude; the module-cache salt has no environment; a 64d8ba5 -prod build switched from CPATH=sdkA to sdkB printed abi=1 from reused module objects, cold gave 2; unreachable on master while Windows falls back over core_windows.h; Linux units include no system headers, so immune); v3_crun_build_identity is the same salt, likely the same on Windows, not reproduced; tcc_atomic_object_key is a false positive (atomic.S has no #include)</span></div>
     </div>
 
+    <div class="detector-row">
+      <div class="det-name">detect_external_behavior_claims.v &lt;file&gt; [base]</div>
+      <div class="det-desc">
+        <strong>Finds:</strong> comment lines a change adds (their trimmed text is not a comment line of the base copy) that state what another tool does: they name V, its parser or checker, cgen, the C backend, GCC, Clang, TCC or MSVC, or say the code mirrors or matches something. In a <code>.md</code> file every new prose line outside code fences is listed.<br>
+        <strong>Why:</strong> each listed line is a claim the comment ledger must probe through every consumer (Angle I, rev 101; docs rows rev 111). The batch has passed <code>.md</code> targets with their base copies since rev 120. Enumerate-and-verify: a listed line is a candidate, not a bug.<br>
+        <strong>Output:</strong> exit 1 = lines listed (the count is the ledger&rsquo;s row count); 0 = none.
+      </div>
+      <div class="det-pattern">whole-line <code>//</code> comments (V) or prose lines outside <code>```</code> fences (Markdown), minus lines whose text occurs in the base copy; in V a line must also name a tool word.</div>
+      <div><span class="miss-badge">Caught: vlang/v PR 31981 round 7 claims; PR 31407 round 15 docs sentence; 108 lines of vlang/v#31848&rsquo;s <code>doc/docs.md</code> once the batch fed it (rev 120)</span></div>
+    </div>
+
+    <div class="detector-row">
+      <div class="det-name">detect_platform_gated_tests.v &lt;file&gt; [base]</div>
+      <div class="det-desc">
+        <strong>Finds:</strong> test functions in a <code>_test.v</code> file whose body opens with a <code>$if ... { return }</code> gate, so they run only on some hosts.<br>
+        <strong>Why:</strong> a mutant killed only by such a test is killed only on those hosts: its Angle J row names the platforms, and the branch needs an ungated test unless it is platform-specific itself (rev 101).<br>
+        <strong>Output:</strong> exit 1 = gated tests listed; 0 = none, or not a <code>_test.v</code> file.
+      </div>
+      <div class="det-pattern">a <code>fn test_</code> body whose first statement is a <code>$if</code> block that returns.</div>
+      <div><span class="miss-badge">Caught: vlang/v PR 31981 round 7 (resets pinned only by tests gated on macOS and Linux)</span></div>
+    </div>
+
+    <div class="detector-row">
+      <div class="det-name">detect_scheduler_field_coverage.v &lt;file&gt; [base | struct fn]</div>
+      <div class="det-desc">
+        <strong>Finds:</strong> an option-typed (<code>?T</code>) struct field whose name holds <code>deadline</code> or <code>timeout</code> that the struct&rsquo;s central scheduler (<code>compute_next_timeout</code>, <code>next_timeout</code>, <code>next_deadline</code>) never reads.<br>
+        <strong>Why:</strong> a deadline the aggregator does not merge is never scheduled: a caller-driven event loop never learns to call back (Angle D, central-scheduler completeness).<br>
+        <strong>Output:</strong> exit 1 = an unread deadline field; 0 = all read, or no aggregator found (SKIP).
+      </div>
+      <div class="det-pattern">finds the aggregator and its receiver struct (or takes them by name), then checks each matching field name in the aggregator&rsquo;s body.</div>
+      <div><span class="miss-badge">Caught: <code>QuicConn.closing_deadline</code> never merged into <code>compute_next_timeout()</code> (vlang/v#28083)</span></div>
+    </div>
+
+    <div class="detector-row">
+      <div class="det-name">detect_bytes_nul_terminator_mismatch.v &lt;file&gt; [base]</div>
+      <div class="det-desc">
+        <strong>Finds:</strong> a <code>&lt;var&gt; := &lt;expr&gt;.bytes()</code> followed within 5 lines by <code>&lt;var&gt;.len + 1</code> passed to a parse call.<br>
+        <strong>Why:</strong> <code>.bytes()</code> allocates exactly <code>.len</code> bytes with no trailing NUL, so the <code>+ 1</code> length makes mbedTLS&rsquo;s PEM parsers read one byte past the buffer; use <code>.str</code>.<br>
+        <strong>Output:</strong> exit 1 = a mismatch; 0 = none.
+      </div>
+      <div class="det-pattern"><code>.bytes()</code> assignment, then <code>.len + 1</code> on the same name in the next 5 lines.</div>
+      <div><span class="miss-badge">Caught: mbedTLS certificate and key parsing</span></div>
+    </div>
+
+    <div class="detector-row">
+      <div class="det-name">detect_ecdsa_key_missing_free.v &lt;file&gt; [base]</div>
+      <div class="det-desc">
+        <strong>Finds:</strong> an ECDSA key made by a constructor (<code>PrivateKey.new</code>, <code>public_key</code>, <code>generate_key</code>, <code>from_uncompressed_bytes</code>) that is bound to <code>_</code> (DISCARDED) or never gets <code>.free()</code> in the same file (LEAKED).<br>
+        <strong>Why:</strong> the keys wrap OpenSSL objects with no finalizer: a key not freed leaks (found by the sanitizer CI jobs). Keys threaded through struct fields are not traced; see <code>detect_struct_wrapped_resource_leak</code>.<br>
+        <strong>Output:</strong> exit 1 = a discarded or leaked key; 0 = none.
+      </div>
+      <div class="det-pattern">constructor lines parsed as <code>a := ...</code> / <code>a, b := ...</code>; each name must have <code>&lt;name&gt;.free()</code> in the file.</div>
+      <div><span class="miss-badge">Caught: TLS 1.3 handshake test keys (vlang/v#27680)</span></div>
+    </div>
+
+    <div class="detector-row">
+      <div class="det-name">detect_quic_test_missing_openssl_gate.v &lt;file&gt; [base]</div>
+      <div class="det-desc">
+        <strong>Finds:</strong> a <code>vlib/net/quic/*_test.v</code> with neither <code>// vtest build: present_openssl?</code> as its first line nor an entry in <code>cmd/tools/vtest-self.v</code>&rsquo;s musl skip list.<br>
+        <strong>Why:</strong> docker-ubuntu-musl CI cannot build such a test.<br>
+        <strong>Output:</strong> exit 1 = neither the gate nor a skip-list entry; 0 otherwise (other files pass).
+      </div>
+      <div class="det-pattern">reads the skip list from the current folder; under <code>--at</code> the runner extracts <code>vtest-self.v</code> at that revision.</div>
+      <div><span class="miss-badge">Caught: musl CI failures on new QUIC tests</span></div>
+    </div>
+
+    <div class="detector-row">
+      <div class="det-name">detect_struct_wrapped_resource_leak.v &lt;file&gt; [regex] [gitrev]</div>
+      <div class="det-desc">
+        <strong>Finds:</strong> a struct field of a resource type (default <code>ecdsa.(PrivateKey|PublicKey)</code>), a function that returns that struct, and a call site that binds that position to <code>_</code> or never frees <code>&lt;name&gt;.&lt;field&gt;</code>.<br>
+        <strong>Why:</strong> a resource returned inside a struct leaks when a caller drops the struct; <code>detect_ecdsa_key_missing_free</code> cannot see it. With <code>GRAPHIFY_EXE</code> and <code>GRAPHIFY_GRAPH</code> set it also follows callers in other files.<br>
+        <strong>Output:</strong> exit 1 = a call site discards or never frees the resource; 0 = none. Known gap: the second argument is the regex, so through <code>run_detectors</code> the base-copy path lands there and the detector finds nothing; run it by hand.
+      </div>
+      <div class="det-pattern">one hop: field, enclosing struct, returning function, call-site binding.</div>
+      <div><span class="miss-badge">Caught: 7 discarded <code>FakeServerHandshake</code> keys in <code>tls13_handshake_test.v</code> (vlang/v#27680)</span></div>
+    </div>
+
+    <div class="detector-row">
+      <div class="det-name">detect_unshared_getter_return.v &lt;file&gt; [base]</div>
+      <div class="det-desc">
+        <strong>Finds:</strong> a public parameterless getter whose body is a bare <code>return r.field</code> of a non-primitive type.<br>
+        <strong>Why:</strong> V&rsquo;s plain array and map assignment shares storage, so the caller gets an alias of the receiver&rsquo;s internal buffer. Enumerate-and-verify: confirm each candidate.<br>
+        <strong>Output:</strong> exit 1 = candidates listed; 0 = none.
+      </div>
+      <div class="det-pattern"><code>pub fn (r T) name() Type { return r.field }</code> with <code>Type</code> not a primitive or string.</div>
+      <div><span class="miss-badge">Caught: <code>CryptoStreamReassembler.data()</code> (vlang/v#27880 round 4)</span></div>
+    </div>
+
   </div>
 </div>
 
@@ -1484,6 +1573,7 @@
     <div class="section-title">Revision History</div>
     <div class="changelog-body"><strong>Skills</strong> (2026-11-14, no rule change) &mdash; <code>/codex-respond</code> is renamed <code>/review-respond</code> and takes any reviewer&rsquo;s round: it now reads review bodies, inline comments and plain PR comments (where maintainers post findings), splits a comment that holds several findings, works in any repository, and replies in the place each finding was posted. <code>/luna-respond</code> is removed: it was a placeholder for a review service that was never connected.</div>
     <div class="changelog-body"><strong>vprobe</strong> (2026-11-17, no rule change) &mdash; graphify branch <code>body-type-refs</code> (2026-11-16): a <code>vprobe mutate</code> run of 57 mutants stalled about 3 hours on one that made a loop endless, because vprobe ran its commands with no time limit on Windows. Killing <code>graphify_test.exe</code> by hand did not end it (<code>v test</code> runs a test again when it exits 1 with no output, as a killed test does), and the mutant was then counted as &ldquo;KILLED (exit 1, no test named)&rdquo;. vprobe now runs every spec command on Windows in a Job Object of its own and ends the whole tree (<code>v</code>, vtest.exe, the <code>*_test.exe</code>, a C compiler) after 600 s with exit 124, which mutate reports as &ldquo;KILLED (exit 124: the tests hung or crashed)&rdquo;. On Linux and macOS, mutate&rsquo;s and trace&rsquo;s <code>test</code> and <code>build</code> and asm&rsquo;s commands ran with no limit either; every spec command now runs under <code>timeout -k 10 600</code>: SIGTERM to its process group, then SIGKILL, which reaches the whole group with GNU coreutils but only the command&rsquo;s own process with uutils (Ubuntu 26.04&rsquo;s <code>/usr/bin/timeout</code>), measured 2026-11-17. The hard-rule 4 paragraph says so. <code>tests/vprobe/selftest.sh</code> builds the probe with a 3 s limit and checks that a test that never ends is killed (exit 124) with the process it started; <code>probes/vprobe_windows_test.v</code> tests the Windows side.</div>
+<div class="changelog-body"><strong>rev 122</strong> (2026-11-22) &mdash; The batch runner, from the rev 120 review (no corpus row: found by a review, not missed by one). <code>vprobe mutate</code> over <code>run_detectors.v</code> left 16 mutants alive on lines rev 120 did not touch: the <code>--only</code>, <code>--base=</code> and <code>--at=</code> forms, the working-tree and <code>--at</code> folder loops, a named file that does not exist, and the compiler lookup. The runner&rsquo;s per-run folder was <code>/tmp/run_detectors_&lt;pid&gt;</code>, made with <code>mkdir_all</code>, and both build caches (<code>run_detectors.v</code>&rsquo;s and <code>run_detectors.sh</code>&rsquo;s) were <code>review-tools-bin</code> in the shared temp folder, under names anyone can work out from the sources: another account could put a build there for the runner to run. <code>vprobe matrix</code> as root over every kind of object at the old cache path (24 cells): the old runner failed (exit 2) or wrote into and ran from whatever folder was there, another account&rsquo;s included; the new one left every object alone. Changes: builds go to <code>~/.cache/review-tools-bin</code> (<code>os.cache_dir()</code>, <code>XDG_CACHE_HOME</code>), only the detectors a run needs are built, the per-run folder is new, mode 0700, with a random name (an existing path is refused), the base falls back from <code>master</code> to <code>main</code> to the branch <code>origin/HEAD</code> names, and the log prints <code>--- skipped:</code> for a named file that is not there and <code>(no detector applies to this file)</code> under a target no detector takes. <code>hooks/check_reference.sh</code> wrote to <code>${TMPDIR:-/tmp}/check_reference.$$</code>, which follows a planted link: it now keeps node&rsquo;s output in a variable. And V&rsquo;s <code>exit()</code> runs no <code>defer</code>, so every flagged or failed run left its per-run folder, with the base copies of its targets, in the temp dir (3,298 of them in this machine&rsquo;s WSL <code>/tmp</code>): every exit now removes it. 21 smoke checks join the runner test, each through both runners; the 10 for new behaviour fail on the old runners (20 runs), and the 11 for behaviour the runner already had are shown by the mutants they kill, and <code>FIXTURE_SMOKE_ONLY=1</code> runs them alone for mutation runs. New: Angle I &ldquo;The batch finds its base, and says what it skipped&rdquo;. The Detectors tab gains its 8 missing rows.</div>
 <div class="changelog-body"><strong>rev 121</strong> (2026-11-22) &mdash; two skills that run before the code exists, and no new <code>/vreview</code> rule. From a reading of the miss corpus on 2026-11-22: of its 380 rows about 20 turn on V language behaviour, and the rest are tests that pass on wrong code, guards that cover part of their cases, lists written from memory, second copies of existing logic and claims never run. <code>/review-tools:design-brief</code>: one page (the request in the asker&rsquo;s words, the smallest change, what is out of scope, the decisions that are the user&rsquo;s, each list with its source) that the user approves before any source file is edited; on vlang/v#31848 those questions were asked after five adversarial rounds. <code>/review-tools:v-write</code>: seventeen V facts, each with a program in <code>skills/v-write/vfacts/</code> run on <code>V 0.5.2 9621aa0</code> on Windows and <code>V 0.5.2 0eab96b</code> in Ubuntu WSL, six structural defaults and the loop for each function. Neither has been used on a real task yet.</div>
 <div class="changelog-body"><strong>rev 120</strong> (2026-11-22) &mdash; vlang/v#31848 (inline pass after adversarial round 10, 2026-11-21): the comment ledger had no rows for <code>doc/docs.md</code>, whose diff from base adds 108 prose lines that <code>detect_external_behavior_claims</code> lists when run on the file directly. Rev 111 says to pass each touched <code>.md</code> file with its base copy, but the batch runner <code>run_detectors.v</code> gave that detector <code>*.v</code> targets only, its no-arg mode selected changed <code>.v</code> files only, and <code>--at</code> extracted <code>.v</code> files only: a <code>.md</code> target ran no detector (&ldquo;0 detector runs&rdquo;, exit 2). A <code>/vreview</code> of the PR under rev 119 found it. The runner now runs the claims detector on <code>*.md</code> targets with their base copies, selects changed <code>.md</code> files with no arguments, and extracts each target for <code>--at</code>; on the PR&rsquo;s docs it lists the same 108 lines as a direct run. Eight runner smoke cases, each run through both runners, fail on the old runner: a <code>.md</code> target given by name (its count and its listed line), changed on the branch, changed only in the working tree, a changed file of another kind left out, <code>--at</code> with one and with two targets, and <code>--base</code>. New: Angle I &ldquo;The batch feeds the docs rows&rdquo;, which also says the log must name a base: where the default branch is not <code>master</code>, pass <code>--base</code>, since with <code>base none</code> every line is listed (4038 lines of SKILL.md when measured). One corpus row.</div>
 <div class="changelog-body"><strong>rev 119</strong> (2026-11-22) &mdash; vlang/v#31848 (adversarial rounds 9 and 10, 2026-11-20, 16 and 15 confirmed; and the inline pass after round 10, 2026-11-21, which found 15 test gaps and no code defect). Goal: the inline pass finds these classes before an agent round does. <code>vprobe mutate</code> called every mutant ended at the time limit a kill, also when the unmutated tests reached the limit too: four specs side by side on <code>/mnt/s</code> showed 63 such kills, and the rerun on ext4 copies had 60 survivors where the first run showed 34. It now files them as <code>TIMEOUT, not a kill</code> (self-test case <code>slow</code>). New rules: Angle A, short names, search-pattern characters, the running system&rsquo;s device names and the gone text of each call on Windows; Angle C, a program that hands the change its inputs is a caller (<code>v up</code>); Angle F, the program&rsquo;s own earlier passes are a party, and a set worked out again forgets; Angle G12, a pattern in the docs is the set to test, and a superuser branch is a behaviour; Angle I, a row per platform branch; Angle J, a kill at the time limit counts only when the code never reached it, and a hand-mutant kill counts from a run that shows the test ran, on a system that reaches the line. 11 corpus rows.</div>
@@ -1717,7 +1807,7 @@ function detectorFilterGroups() {
       'detect_h2conn_1xx_end_stream', 'detect_h2conn_response_parity', 'detect_mux_trailers_preserved',
       'detect_pump_delegates_dispatch', 'detect_stream_state_even_idle', 'detect_mux_headers_after_end',
       'detect_hpack_skip_on_half_closed', 'detect_orphan_continuation_gate', 'detect_locally_reset_consumers',
-      'detect_flag_priority_order', 'detect_headers_max_reread'
+      'detect_flag_priority_order', 'detect_headers_max_reread', 'detect_scheduler_field_coverage'
     ],
     concurrency: [
       'detect_unbounded_accum', 'detect_sibling_arms', 'detect_error_scope', 'detect_swallowed_write',
@@ -1738,7 +1828,8 @@ function detectorFilterGroups() {
       'detect_tls_accept_send_interruptible', 'detect_tls_read_precheck_poll',
       'detect_vschannel_pooled_alpn_gate', 'detect_bytes_nul_terminator_mismatch'
     ],
-    process: ['run_detectors', 'detect_quic_test_missing_openssl_gate', 'detect_cache_key_environment']
+    process: ['run_detectors', 'detect_quic_test_missing_openssl_gate', 'detect_cache_key_environment',
+      'detect_external_behavior_claims', 'detect_platform_gated_tests']
   };
 }
 
@@ -1995,7 +2086,8 @@ var angleData = {
       '<strong>User docs get ledger rows (rev 111).</strong> Pass each touched <code>.md</code> file and its base copy to <code>detect_external_behavior_claims</code>: it lists every new prose line. A sentence whose effect depends on a condition is probed on each side of it. Missed on vlang/v PR 31407 (adversarial round 15): &ldquo;an alignment directive ... ends the prefix&rdquo; had no ledger row. The ledger has one row per listed line, counted: a blind rerun wrote 9 rows for 46 listed lines and missed the sentence again.',
 '<strong>A sentence that discloses one consequence covers one consequence (rev 115).</strong> A doc sentence that states a mechanism and one thing that follows from it is read as the whole list. Write out each kind the mechanism can record, each thing the object can be when it is used, and each party that can change it; run base and head on every pair; the docs then name every pair that differs from base, a tree nobody changes included. Missed on vlang branch <code>os-walk-windows-reuse-find-attrs</code> (adversarial round 2, 2 of 8): the docs named only &ldquo;a file that the callback replaces by a directory&rdquo;, while a link replaced by a directory is treated the same and base entered it.',
 '<strong>A sentence about what the program does gets a row per platform branch (rev 119).</strong> Where an <code>$if windows</code> branch sits behind a behaviour, a docs sentence, help line or status text that states it is checked against each branch and each route that reaches it (Angle C). Missed on vlang/v#31848, adversarial round 9 (2 findings): the candidate list told Windows users a folder &ldquo;will be moved aside&rdquo;, which a Windows build never does, and <code>v up</code> undid the docs&rsquo; sentence about <code>..</code>.',
-'<strong>The batch feeds the docs rows (rev 120).</strong> <code>run_detectors.v</code> runs <code>detect_external_behavior_claims</code> on every <code>.md</code> target, and its no-arg mode selects changed <code>.md</code> files; name the touched <code>.md</code> files when naming targets. Before writing the ledger, check the batch log&rsquo;s <code>=== run_detectors:</code> line names a base and the detector&rsquo;s line sits under each touched <code>.md</code> target, and take its count as the docs rows&rsquo; count. The base is the merge base with <code>master</code>; elsewhere pass <code>--base &lt;rev&gt;</code>, since with <code>base none</code> every line is listed (over 4000 for SKILL.md). Missed on vlang/v#31848 (inline pass after adversarial round 10): the runner gave the detector <code>.v</code> files only, so <code>doc/docs.md</code> ran no detector and none of its 108 new lines had a row.'
+'<strong>The batch feeds the docs rows (rev 120).</strong> <code>run_detectors.v</code> runs <code>detect_external_behavior_claims</code> on every <code>.md</code> target, and its no-arg mode selects changed <code>.md</code> files; name the touched <code>.md</code> files when naming targets. Before writing the ledger, check the batch log&rsquo;s <code>=== run_detectors:</code> line names a base and the detector&rsquo;s line sits under each touched <code>.md</code> target, and take its count as the docs rows&rsquo; count. The base is the merge base with <code>master</code>, else <code>main</code>, else the branch <code>origin/HEAD</code> names (rev 122); with none, pass <code>--base &lt;rev&gt;</code>, since with <code>base none</code> every line is listed (over 4000 for SKILL.md). Missed on vlang/v#31848 (inline pass after adversarial round 10): the runner gave the detector <code>.v</code> files only, so <code>doc/docs.md</code> ran no detector and none of its 108 new lines had a row.',
+'<strong>The batch finds its base, and says what it skipped (rev 122).</strong> With no <code>master</code>, <code>run_detectors.v</code> measures from <code>main</code>, else the branch <code>origin/HEAD</code> names, and its header names the branch. Under a target no detector takes it prints <code>(no detector applies to this file)</code>: the batch gave that file no rows, so its new lines get rows by hand or a reason why none are needed. A named file that is not there is printed as <code>--- skipped:</code> and was not scanned at all: check the spelling. From the rev 120 review of the runner (16 surviving mutants, the shared temp folder).'
     ],
     tip: 'Artifact: for every doc comment touched or introduced this diff that states a parameter&rsquo;s composition or a MUST-order rule, one line: the stated contract, and confirmation (or a logged gap) that every real call site/existing caller actually satisfies it. Added rev 44 after 2 GitHub Copilot findings on vlang/v#27880 (pullrequestreview-4875246955) that no prior angle would have caught &mdash; see Miss Corpus. Rev 73 adds: a comment that hands a guarantee to another function (&ldquo;stays private through test_private&rdquo;) is checked by reading that function; a field doc naming its consumers is updated when a consumer is added; prose docs are checked word for word against the condition.'
   },

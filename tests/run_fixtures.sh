@@ -22,6 +22,7 @@
 # Usage: bash tests/run_fixtures.sh [detector-name ...]
 #   No args: run every fixtured detector AND fail if any detect_*.sh/.ps1 in
 #   skills/code-review has neither a tests/ dir nor an entry in tests/UNFIXTURED.md.
+#   FIXTURE_SMOKE_ONLY=1 with no args: skip the per-detector cases.
 # Exit: 0 all green, 1 any failure, 2 usage/environment error.
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -135,6 +136,9 @@ if [ "$#" -gt 0 ]; then
 else
     mapfile -t dets < <(cd "$here" && find . -mindepth 1 -maxdepth 1 -type d -name 'detect_*' | sed 's|^\./||' | sort)
     check_coverage=1
+    # FIXTURE_SMOKE_ONLY=1 skips the per-detector cases and runs the rest (the runner
+    # smoke test above all), for a mutation run over run_detectors.v.
+    [ -n "${FIXTURE_SMOKE_ONLY:-}" ] && dets=()
 fi
 
 for det in "${dets[@]}"; do
@@ -197,15 +201,20 @@ if [ "$check_coverage" -eq 1 ]; then
     done
 fi
 
-# ---- runner smoke test: run_detectors.sh end to end on a throwaway repo -------
-# master holds the known_good lenient-parse fixture, feature the known_bad one.
-# No-arg mode must select the changed file and FLAG it; --at master must scan
-# the old content and pass; a CRLF/backslash-polluted path must be normalised.
-# doc/docs.md has one line on master and one more on feature: the claims
-# detector must get it with its base copy and list only the feature line
+# ---- runner smoke test: run_detectors.sh end to end on throwaway repos ---------
+# The main repo: master holds the known_good lenient-parse fixture, feature the
+# known_bad one. No-arg mode must select the changed file and FLAG it; --at master
+# must scan the old content and pass; a CRLF/backslash-polluted path must be
+# normalised. doc/docs.md has one line on master and one more on feature: the
+# claims detector must get it with its base copy and list only the feature line
 # (rev 120; the runner gave it .v files only, so a batch never listed docs).
-# doc/wt.md gains two lines in the working tree only, and notes.txt is a changed
-# file of no target kind: no-arg mode must take the first and leave the second.
+# doc/aa.md and doc/wt.md gain lines in the working tree only, and notes.txt is a
+# changed file of no target kind: no-arg mode must take the first two and leave
+# the third. vlib/h2a and vlib/h2b each hold the arm-parity known_bad pair and a
+# file that sorts before it, so --at must extract every sibling of every target
+# folder. Two more repos have no master: one has main, the other has neither,
+# only branches trunk and feature and an origin/HEAD that names origin/trunk;
+# no-arg mode must take its base from main and from origin/HEAD (rev 122).
 smoke() { # $1=label $2=expected rc $3=regex the output must match, rest=runner args
     local label="$1" want="$2" re="$3"; shift 3
     local out rc
@@ -218,53 +227,133 @@ smoke() { # $1=label $2=expected rc $3=regex the output must match, rest=runner 
         printf '%s\n' "$out" | sed 's/^/         | /' | head -20
     fi
 }
+commit_all() { git add -A && git -c user.name=f -c user.email=f@x -c commit.gpgsign=false commit -q -m "$1"; }
+# plant <dir> <stem> <source> <shell line>: an executable named as the runner names
+# its cached build of <source>, so a case can see whether the runner runs it. The
+# old file is removed first: one that was just run cannot be rewritten in place
+# (ETXTBSY). A plant that fails is a failure, never a silently real build.
+plant() {
+    local key f; key="$(sha256sum "$3" | cut -c1-16)"; f="$1/$2-$key"
+    if ! { mkdir -p "$1" && rm -f "$f" && printf '#!/bin/sh\n%s\n' "$4" > "$f" && chmod +x "$f"; }; then
+        fail=$((fail+1)); failures+=("runner-smoke: could not plant $f")
+        echo "  [FAIL] runner-smoke: could not plant $f"
+    fi
+}
+# runner_cases <label prefix>: every case, through "${runner[@]}".
+runner_cases() {
+    local p="$1" n
+    local saved=("${runner[@]}") lp="$root/detectors/detect_lenient_parse.v"
+    r="$work/runner-smoke"
+    smoke $p/no-arg-flags-changed-file 1 'FLAG\] detect_lenient_parse'
+    smoke $p/at-master-passes 0 '@ master' --at master vlib/x/parse.v
+    smoke $p/at-equals-form 0 '@ master' --at=master vlib/x/parse.v
+    smoke $p/normalised-path 1 'target: vlib/x/parse\.v' "vlib\\x\\parse.v"$'\r'
+    smoke $p/docs-target-gets-base-copy 1 "$docs_flag" doc/docs.md
+    smoke $p/docs-target-lists-the-new-line 1 "$docs_line" doc/docs.md
+    smoke $p/no-arg-selects-changed-docs 1 "$docs_flag"
+    smoke $p/no-arg-selects-working-tree-docs 1 "$wt_flag"
+    smoke $p/no-arg-skips-other-kinds 1 "$noarg_count"
+    smoke $p/at-master-scans-old-docs 0 "$docs_at_ok" --at master doc/docs.md
+    smoke $p/at-master-scans-every-target 0 '2 target file\(s\) @ master' --at master doc/docs.md vlib/x/parse.v
+    smoke $p/at-master-extracts-target-siblings 1 'summary: 2 detector runs, 2 flagged' \
+        --at master --only settings_arm_parity vlib/h2a/h2_mux_conn.v vlib/h2b/h2_mux_conn.v
+    smoke $p/base-option-sets-the-base-copy 0 "$docs_at_ok" --base feature doc/docs.md
+    smoke $p/base-equals-form 0 "$docs_at_ok" --base=feature doc/docs.md
+    smoke $p/only-option-picks-detectors 1 'summary: 1 detector runs, 1 flagged' --only lenient_parse vlib/x/parse.v
+    smoke $p/only-equals-form 1 'summary: 1 detector runs, 1 flagged' --only=lenient_parse vlib/x/parse.v
+    smoke $p/missing-named-target-is-reported 1 'skipped: doc/missing\.md' doc/missing.md doc/docs.md
+    smoke $p/target-no-detector-takes-is-reported 1 'no detector applies to this file' notes.txt doc/docs.md
+    # A cold cache builds only what the run needs, with the compiler find_v picks.
+    runner=(env "XDG_CACHE_HOME=$work/cold-$p" "${saved[@]}")
+    smoke $p/cold-cache-builds-the-needed-detector 1 'summary: 1 detector runs, 1 flagged' --only lenient_parse vlib/x/parse.v
+    n="$(ls "$work/cold-$p/review-tools-bin" 2>/dev/null | grep -c '^detect_')"
+    if [ "$n" -eq 1 ]; then
+        pass=$((pass+1))
+    else
+        fail=$((fail+1)); failures+=("runner-smoke/$p/cold-cache-holds-one-detector: $n detector builds, expected 1")
+        echo "  [FAIL] runner-smoke/$p/cold-cache-holds-one-detector: $n detector builds, expected 1"
+    fi
+    # Builds already in the shared temp folder are never run: both caches lived there
+    # before rev 122, under names anyone could predict from the sources.
+    plant "$work/tmp-$p/review-tools-bin" detect_lenient_parse "$lp" 'echo PLANTED; exit 7'
+    plant "$work/tmp-$p/review-tools-bin" run_detectors "$root/detectors/run_detectors.v" 'echo PLANTED; exit 7'
+    runner=(env "TMPDIR=$work/tmp-$p" "XDG_CACHE_HOME=$work/cache-$p" "${saved[@]}")
+    smoke $p/shared-temp-builds-are-not-run 1 'FLAG\] detect_lenient_parse' --only lenient_parse vlib/x/parse.v
+    # The per-run folder is new and private: a build in the user's own cache reports it.
+    plant "$work/cache-$p/review-tools-bin" detect_lenient_parse "$lp" \
+        'echo "TMPDIR_SEEN $(ls -ld .. | cut -c1-10) $(basename "$(cd .. && pwd)")"'
+    smoke $p/per-run-folder-is-private 0 'TMPDIR_SEEN drwx------ run_detectors_[0-9]+_[0-9a-f]{16}' \
+        --at master --only lenient_parse vlib/x/parse.v
+    # Every run removes its per-run folder, whatever its exit: V's exit() runs no
+    # defer, and before rev 122 each flagged or failed run left its folder behind.
+    mkdir -p "$work/leak-$p"
+    runner=(env "TMPDIR=$work/leak-$p" "${saved[@]}")
+    smoke $p/leak-flagged 1 'FLAG\] detect_lenient_parse' --only lenient_parse vlib/x/parse.v
+    smoke $p/leak-clean 0 '@ master' --at master --only lenient_parse vlib/x/parse.v
+    smoke $p/leak-no-target 2 'no target' doc/missing.md
+    smoke $p/leak-unknown-revision 2 'unknown revision' --at no-such-rev vlib/x/parse.v
+    smoke $p/leak-nothing-checked 2 'nothing was checked' notes.txt
+    n="$(find "$work/leak-$p" -mindepth 1 -maxdepth 1 -name 'run_detectors_*' | wc -l)"
+    if [ "$n" -eq 0 ]; then
+        pass=$((pass+1))
+    else
+        fail=$((fail+1)); failures+=("runner-smoke/$p/per-run-folders-are-removed: $n left in the temp dir")
+        echo "  [FAIL] runner-smoke/$p/per-run-folders-are-removed: $n left in the temp dir"
+    fi
+    runner=("${saved[@]}")
+    r="$work/runner-smoke-main"
+    smoke $p/no-master-falls-back-to-main 1 "$docs_flag"
+    smoke $p/no-master-header-names-main 1 'base [0-9a-f]+ \(merge base of main and HEAD\)'
+    r="$work/runner-smoke-origin"
+    smoke $p/no-master-or-main-falls-back-to-origin-head 1 "$docs_flag"
+    smoke $p/no-master-header-names-origin-head 1 'base [0-9a-f]+ \(merge base of origin/trunk and HEAD\)'
+}
 if [ "$check_coverage" -eq 1 ]; then
-    r="$work/runner-smoke"; rm -rf "$r"; mkdir -p "$r/vlib/x" "$r/doc"
+    r="$work/runner-smoke"; rm -rf "$r" "$work/runner-smoke-main" "$work/runner-smoke-origin"
+    mkdir -p "$r/vlib/x" "$r/doc" "$work/runner-smoke-main/doc" "$work/runner-smoke-origin/doc"
     if ( cd "$r" && unset GIT_DIR GIT_WORK_TREE \
          && git init -q -b master . \
          && cp "$here/detect_lenient_parse/known_good/guarded/parse.v" vlib/x/parse.v \
          && printf 'Docs line written on master.\n' > doc/docs.md \
          && printf 'Working-tree docs line written on master.\n' > doc/wt.md \
-         && git add -A && git -c user.name=f -c user.email=f@x -c commit.gpgsign=false commit -q -m base \
+         && printf 'Second working-tree docs file, written on master.\n' > doc/aa.md \
+         && for d in h2a h2b; do mkdir -p vlib/$d \
+              && cp "$here/detect_settings_arm_parity/known_bad/comment_only_arm/"h2_*.v vlib/$d/ \
+              && printf 'module http\n' > vlib/$d/h2_a.v || exit 1; done \
+         && commit_all base \
          && git checkout -q -b feature \
          && cp "$here/detect_lenient_parse/known_bad/unguarded/parse.v" vlib/x/parse.v \
          && printf 'Docs line added on feature.\n' >> doc/docs.md \
          && printf 'Not a target kind, added on feature.\n' > notes.txt \
-         && git add -A && git -c user.name=f -c user.email=f@x -c commit.gpgsign=false commit -q -m feature \
-         && printf 'Working-tree line one, uncommitted.\nWorking-tree line two, uncommitted.\n' >> doc/wt.md ); then
+         && commit_all feature \
+         && printf 'Working-tree line one, uncommitted.\nWorking-tree line two, uncommitted.\n' >> doc/wt.md \
+         && printf 'Aa line one.\nAa line two.\nAa line three.\n' >> doc/aa.md ) \
+       && ( cd "$work/runner-smoke-main" && unset GIT_DIR GIT_WORK_TREE \
+         && git init -q -b main . \
+         && printf 'Docs line written on main.\n' > doc/docs.md && commit_all base \
+         && git checkout -q -b feature \
+         && printf 'Docs line added on feature.\n' >> doc/docs.md && commit_all feature ) \
+       && ( cd "$work/runner-smoke-origin" && unset GIT_DIR GIT_WORK_TREE \
+         && git init -q -b trunk . \
+         && printf 'Docs line written on trunk.\n' > doc/docs.md && commit_all base \
+         && git update-ref refs/remotes/origin/trunk HEAD \
+         && git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk \
+         && git checkout -q -b feature \
+         && printf 'Docs line added on feature.\n' >> doc/docs.md && commit_all feature ); then
         # Both runners: the shell one, and the V one compiled once (when V is available).
-        # The docs cases: 1 new line in doc/docs.md and 2 in doc/wt.md mean each got its
-        # base copy (2 and 3 without it); no-arg mode has 3 targets, 4 if it took notes.txt.
+        # The docs cases: 1 new line in doc/docs.md, 2 in doc/wt.md and 3 in doc/aa.md mean
+        # each got its base copy (one more without it); no-arg mode has 4 targets, 5 if it
+        # took notes.txt, 3 if it lost one of the two working-tree files.
         docs_flag='FLAG\] detect_external_behavior_claims\.v +RESULT: 1 new'
         docs_line='\| +line 2: Docs line added on feature\.'
         wt_flag='FLAG\] detect_external_behavior_claims\.v +RESULT: 2 new'
-        noarg_count='run_detectors: 3 target file\(s\), base '
+        noarg_count='run_detectors: 4 target file\(s\), base '
         docs_at_ok='\[ OK \] detect_external_behavior_claims\.v'
         runner=(bash "$detdir/run_detectors.sh")
-        smoke sh/no-arg-flags-changed-file 1 'FLAG\] detect_lenient_parse'
-        smoke sh/at-master-passes 0 '@ master' --at master vlib/x/parse.v
-        smoke sh/normalised-path 1 'target: vlib/x/parse\.v' "vlib\\x\\parse.v"$'\r'
-        smoke sh/docs-target-gets-base-copy 1 "$docs_flag" doc/docs.md
-        smoke sh/docs-target-lists-the-new-line 1 "$docs_line" doc/docs.md
-        smoke sh/no-arg-selects-changed-docs 1 "$docs_flag"
-        smoke sh/no-arg-selects-working-tree-docs 1 "$wt_flag"
-        smoke sh/no-arg-skips-other-kinds 1 "$noarg_count"
-        smoke sh/at-master-scans-old-docs 0 "$docs_at_ok" --at master doc/docs.md
-        smoke sh/at-master-scans-every-target 0 '2 target file\(s\) @ master' --at master doc/docs.md vlib/x/parse.v
-        smoke sh/base-option-sets-the-base-copy 0 "$docs_at_ok" --base feature doc/docs.md
+        runner_cases sh
         if [ -n "$vexe" ] && "$vexe" -o "$(to_native "$work/bin/run_detectors")" "$(to_native "$root/detectors/run_detectors.v")" >/dev/null 2>&1; then
             runner=("$work/bin/run_detectors")
-            smoke v/no-arg-flags-changed-file 1 'FLAG\] detect_lenient_parse'
-            smoke v/at-master-passes 0 '@ master' --at master vlib/x/parse.v
-            smoke v/normalised-path 1 'target: vlib/x/parse\.v' "vlib\\x\\parse.v"$'\r'
-            smoke v/docs-target-gets-base-copy 1 "$docs_flag" doc/docs.md
-            smoke v/docs-target-lists-the-new-line 1 "$docs_line" doc/docs.md
-            smoke v/no-arg-selects-changed-docs 1 "$docs_flag"
-            smoke v/no-arg-selects-working-tree-docs 1 "$wt_flag"
-            smoke v/no-arg-skips-other-kinds 1 "$noarg_count"
-            smoke v/at-master-scans-old-docs 0 "$docs_at_ok" --at master doc/docs.md
-            smoke v/at-master-scans-every-target 0 '2 target file\(s\) @ master' --at master doc/docs.md vlib/x/parse.v
-            smoke v/base-option-sets-the-base-copy 0 "$docs_at_ok" --base feature doc/docs.md
+            runner_cases v
         else
             echo "  [SKIP] runner-smoke/v: no V compiler or run_detectors.v did not compile"; skip=$((skip+1))
         fi

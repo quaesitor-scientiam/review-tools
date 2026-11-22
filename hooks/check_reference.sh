@@ -84,7 +84,9 @@ if [ -n "$range" ]; then
 fi
 
 if command -v node >/dev/null 2>&1; then
-  node -e '
+  # Captured, not written to a temp file: a fixed name such as
+  # ${TMPDIR:-/tmp}/check_reference.$$ in a shared folder follows a link planted there.
+  node_out="$(node -e '
     const fs = require("fs"), [js, html] = process.argv.slice(1);
     try { const r = new Function(fs.readFileSync(js, "utf8") + ";return MISS_ROWS")();
           if (!Array.isArray(r)) throw new Error("MISS_ROWS is not an array"); }
@@ -95,9 +97,8 @@ if command -v node >/dev/null 2>&1; then
     }
     const o = (h.match(/<div[\s>]/g) || []).length, c = (h.match(/<\/div>/g) || []).length;
     if (o !== c) console.log("- page has " + o + " <div> and " + c + " </div>");
-  ' "$root/$js_rel" "$html" >"${TMPDIR:-/tmp}/check_reference.$$" 2>&1
-  [ -s "${TMPDIR:-/tmp}/check_reference.$$" ] && problems="${problems}$(cat "${TMPDIR:-/tmp}/check_reference.$$")"$'\n'
-  rm -f "${TMPDIR:-/tmp}/check_reference.$$"
+  ' "$root/$js_rel" "$html" 2>&1)"
+  [ -n "$node_out" ] && problems="${problems}${node_out}"$'\n'
 fi
 
 if [ -n "$problems" ]; then

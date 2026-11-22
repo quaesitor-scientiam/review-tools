@@ -214,8 +214,9 @@ All detectors are V programs in `${CLAUDE_PLUGIN_ROOT}/detectors/*.v`, run throu
 runner `${CLAUDE_PLUGIN_ROOT}/detectors/run_detectors.v`, so on Windows the whole loop runs
 from PowerShell with no bash or WSL:
 `S:\\repo\\vlang\\v.exe run "<expanded root>/detectors/run_detectors.v" <files>` from the
-checkout being reviewed (it compiles the detectors once into a cache under %TEMP%). On
-WSL/macOS `v run ...` or the thin `run_detectors.sh` work the same. Past revisions:
+checkout being reviewed (it builds the detectors a run needs once, into `review-tools-bin` in
+your own cache folder, `~/.cache` or `XDG_CACHE_HOME`, never the shared temp folder; rev 122).
+On WSL/macOS `v run ...` or the thin `run_detectors.sh` work the same. Past revisions:
 `--at <rev> <file>`; detectors themselves never call git.
 
 ## Input
@@ -3043,8 +3044,11 @@ changes:
   name the touched `.md` files too. Before writing the ledger, check that the batch log's
   `=== run_detectors:` line names a base and that a `detect_external_behavior_claims.v` line
   sits under each touched `.md` target, and take that line's count as the docs rows' count. The
-  base is the merge base with `master`; where the default branch has another name, pass
-  `--base <rev>`: with `base none` every line of the file is listed (over 4000 for this file).
+  base is the merge base with `master`, else `main`, else the branch `origin/HEAD` names (rev
+  122); where none exists, pass `--base <rev>`: with `base none` every line of the file is
+  listed (over 4000 for this file). A target the log shows with `(no detector applies to this
+  file)` got no rows from the batch: give its new lines rows by hand, or write why it needs
+  none; a name shown as `--- skipped:` was not scanned at all, so check its spelling (rev 122).
   Missed on vlang/v#31848 (inline pass after adversarial round 10, 2026-11-21): the runner gave
   the detector `.v` files only, so `doc/docs.md` ran no detector and none of its 108 new lines
   had a ledger row; a `/vreview` of the PR under rev 119 found the gap (2026-11-22).

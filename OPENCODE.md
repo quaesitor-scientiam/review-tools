@@ -77,7 +77,8 @@ Related consequences:
 
 - Detectors are V programs (`detectors/detect_*.v`) run through
   `detectors/run_detectors.v`, which owns all git access and compiles each
-  detector once into a hash-keyed cache under the OS temp dir. From the target
+  detector a run needs once into a hash-keyed cache in the user's own cache
+  folder (`~/.cache/review-tools-bin`, or under `XDG_CACHE_HOME`). From the target
   repo: `v run <clone>/detectors/run_detectors.v <files>`. The compiler is
   `$DETECT_V`, else the target repo's own `./v`, else `v` on `PATH`.
 - On Windows PowerShell do not run `bash skills/code-review/run_detectors.sh`;

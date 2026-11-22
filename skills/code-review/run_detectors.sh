@@ -21,8 +21,11 @@ fi
 [ -z "$vexe" ] && command -v v >/dev/null 2>&1 && vexe="v"
 [ -n "$vexe" ] || { echo "run_detectors: no V compiler found (set DETECT_V or put v on PATH)" >&2; exit 2; }
 
-cache="${TMPDIR:-/tmp}/review-tools-bin"
-mkdir -p "$cache"
+# The user's own cache folder, as the V runner's os.cache_dir() picks it: a build
+# found here is run as this user, so it must not live in a shared temp folder,
+# where another account could put a file under the predictable name first.
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/review-tools-bin"
+mkdir -p -m 700 "$cache"
 key="$(sha256sum "$runner_src" | cut -c1-16)"
 bin="$cache/run_detectors-$key"
 if [ ! -x "$bin" ]; then
