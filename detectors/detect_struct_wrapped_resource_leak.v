@@ -12,11 +12,13 @@
 //      in the scanned file (LEAKED), report it.
 //
 // Usage: detect_struct_wrapped_resource_leak <file> [resource_type_regex] [gitrev]
-//   NOTE (inherited from the .sh): the SECOND argument is the resource regex, not a base
-//   copy. run_detectors.sh passes a base-copy path there, which silently becomes the
-//   regex and makes the detector vacuous through the runner; the port keeps that contract.
-//   An empty second argument selects the default regex; a regex that does not compile
-//   matches nothing (grep -E would error out and yield no hits either).
+//   The second argument is the resource regex unless it names an existing path (a file or a
+//   folder, relative to the current folder). The batch (run_detectors) passes every detector
+//   a base copy there, or an empty argument when there is none; both select the default
+//   regex. The .sh original read the base copy as the regex
+//   and found nothing through the runner. The known_bad case with_base_copy_in_second_slot
+//   and the known_good case regex_in_second_slot hold both sides of the port's fix. A regex
+//   that does not compile matches nothing (grep -E would error out and yield no hits either).
 //
 // Graphify integration IS ported: with GRAPHIFY_EXE and GRAPHIFY_GRAPH set it runs
 // `<exe> explain <fn> --graph <graph>`, parses the `called by` lines for `(path:line)`

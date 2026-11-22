@@ -3044,6 +3044,13 @@ changes:
   checked through one consumer is unverified for the rest. Every row is also checked against
   the code the comment describes and against the other comments on the same rule: a sentence
   true of the other tool but narrower or wider than this code is a false claim about this code.
+  **The code, not its comments (rev 126).** A row for a doc or page line about what another file
+  does (a Detectors row, a README line about a script) quotes the line of that file's code, or a
+  run of it, that shows the claim. That file's header is a claim too: where the two disagree, the
+  code decides and the header is a finding. Missed in review-tools rev 122 (2026-11-22): its new
+  Detectors row said `detect_struct_wrapped_resource_leak` reads the batch's base copy as its
+  regex and finds nothing, as its header said; its code has ignored an existing file in that
+  slot since the V port, and a batch run flags the known-bad file.
   On a rerun, every comment line the fix adds or edits gets a row too. The detector reads
   whole-line `//` comments only; a trailing comment after code needs a row by hand.
   **User docs get rows too (rev 111).** Pass each touched `.md` file with its base copy: the

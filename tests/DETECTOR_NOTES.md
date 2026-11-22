@@ -64,7 +64,12 @@ path that works today, so fixing any of these needs a NEW known_bad case first.
 
 - `detect_struct_wrapped_resource_leak`: FIXED in the port only: `$2` was the
   resource regex, so through the runner the base-copy path became the regex and
-  the detector was always clean. The port ignores a `$2` that is an existing path.
+  the detector was always clean. The port ignores a `$2` that is an existing path;
+  the known_bad case `with_base_copy_in_second_slot` fails without that check, and
+  the known_good case `regex_in_second_slot` fails if `$2` is never read as the
+  regex (rev 126). The known_bad case's name sorts after the others on purpose:
+  the fixture runner gives known_good cases the first known_bad file as a decoy,
+  and that case's `base_copy.v` has no leak.
 - `detect_info_leak`: the `log\.` alternative must be directly followed by `(`,
   so `log.info(...)` is never flagged.
 - `detect_settings_arm_parity`, `detect_flag_priority_order`,
