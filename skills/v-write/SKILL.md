@@ -17,7 +17,7 @@ Every fact in part 1 was run on 2026-11-22 on Windows (`S:\repo\vlang\v.exe`, `V
 master of 2026-11-21) and in Ubuntu WSL (`V 0.5.2 0eab96b`). The two agree except where a row
 says otherwise. The programs are in `vfacts/` beside this file, and `vfacts/README.md` has the
 commands and the expected output. Rerun them after a compiler update and correct any line whose
-output changed.
+output changed. Only fact 18 was also run on macOS.
 
 ## 1. Language facts, each with its run
 
@@ -41,7 +41,7 @@ output changed.
 | 16 | `.free()` must have a pointer receiver. | `fn (r Res) free()` was refused by the compiler. (`p12_free_receiver.v`) | `fn (r &Res) free()` or `fn (mut r Res) free()`. |
 | 17 | On Windows `os.getuid()` is 0 and `os.lstat` reports inode 0. | Windows: `getuid=0`, inode `0`. WSL: both non-zero. (`p13_windows_ids.v`) | Never tell users or files apart by uid or inode in code that also runs on Windows. |
 
-| 18 | A `filelock.new_file` lock on Linux is lost when the process that holds it opens and closes the same file again. `filelock.new` is not affected, and on Windows neither kind is. | WSL: a second process was `refused` while the lock was held, then `acquired` after the holder opened and closed the file. `filelock.new` in WSL and both kinds on Windows: still `refused`. (`p14_filelock.v`) | While a `new_file` lock is held, never open the locked file again in that process. The run used `os.open` and `close`. |
+| 18 | A `filelock.new_file` lock on Linux and macOS is lost when the process that holds it opens and closes the same file again. `filelock.new` is not affected, and on Windows neither kind is. | WSL and macOS: a second process was `refused` while the lock was held, then `acquired` after the holder opened and closed the file. `filelock.new` there, and both kinds on Windows: still `refused`. (`p14_filelock.v`) | While a `new_file` lock is held, never open the locked file again in that process. The run used `os.open` and `close`. |
 | 19 | `==` on two `&Struct` values compares the fields, not the addresses. | Two separate allocations: with equal fields `a == b` is `true`, with one field different it is `false`; `voidptr(a) == voidptr(b)` is `false`. (`p15_pointer_eq.v`) | To ask "is this the same object", compare `voidptr(a) == voidptr(b)`. |
 | 20 | A folder named like a module takes over `import <module>`, also for the runnable beside it. | With `cmd/mymod/` present, `v run cmd/cli` and `v run cmd/mymod` both stop with "bad module definition"; without it `cmd/cli` runs. (`t14_module_folder/`) | Never name a runnable's folder after the module it imports. Use `cmd/cli` or `examples/`. |
 

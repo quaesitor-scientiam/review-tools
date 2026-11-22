@@ -81,7 +81,7 @@ getuid is 0: true lstat inode of this program is 0: true
 == p14_filelock.v   (Windows)
 filelock.new_file: second process while held: refused; this process opened and closed the file again; second process then: refused
 filelock.new: second process while held: refused; this process could not open the file again; second process then: refused
-== p14_filelock.v   (WSL)
+== p14_filelock.v   (WSL, and macOS)
 filelock.new_file: second process while held: refused; this process opened and closed the file again; second process then: acquired
 filelock.new: second process while held: refused; this process opened and closed the file again; second process then: refused
 == p15_pointer_eq.v
@@ -103,4 +103,4 @@ pointer == where the interface value holds a C struct: true
 - `p15b_pointer_eq_c.v` was also built with `-cc gcc` on Windows and with `-cc gcc` and
   `-cc clang` in WSL: same line.
 
-Not run on macOS.
+On macOS only `p14_filelock.v` was run, on 2026-11-22 on a MacBook (its `v version` was not
