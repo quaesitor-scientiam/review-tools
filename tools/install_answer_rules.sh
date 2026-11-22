@@ -23,17 +23,39 @@
 # CRLF. A target that is a link of this account's own stays one, and the file behind it is
 # changed; a link that another account made is refused. A file this account cannot write is
 # refused too, before any backup is made (exit 1 in both cases).
+#
+# After that, in every case above, the write-time section of global/write-time-rules.md
+# ("Before writing code: design brief, then the V write-time sheet") is appended at the end of
+# the target when no line of the target holds its heading. A file this run created gets it in
+# the same write; for any other file a second output line says "added the write-time section",
+# and the backup still holds the file as it was before the run. Like the rules, the section is
+# not updated once it is there.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 rules="$root/global/answer-rules.md"
 format="$root/global/answer-format.md"
+write_rules="$root/global/write-time-rules.md"
 target="${1:-$HOME/.claude/CLAUDE.md}"
 mark='### A weakness you list is work to do, not a disclosure'
+write_mark='# Before writing code: design brief, then the V write-time sheet'
 
-for f in "$rules" "$format"; do
+for f in "$rules" "$format" "$write_rules"; do
   [ -f "$f" ] || { echo "install_answer_rules: missing $f" >&2; exit 2; }
 done
+
+# section_for <file>: prints what a write must end with for a target whose contents before the
+# run are in <file>: a blank line and the write-time section when no line of <file> holds its
+# heading, nothing otherwise. Every write below builds the whole target from that one file in
+# a single redirection and never appends to the target, so two runs at once do not leave the
+# section twice (with an append they did, in 25 of 30 rounds).
+section_for() {
+  if grep -qF "$write_mark" "$1"; then
+    return 0
+  fi
+  printf '\n'
+  cat "$write_rules"
+}
 
 # A folder or other non-file at the target is refused before anything is written. Every write
 # below also ends in `|| exit 1`: bash 3.2 (macOS's /bin/bash) does not stop under `set -e` when
@@ -53,6 +75,20 @@ fi
 
 if [ -f "$target" ] && grep -qF "$mark" "$target"; then
   echo "already there: $target"
+  if ! grep -qF "$write_mark" "$target"; then
+    # Nothing is written, a backup included, when the result could not be.
+    if [ ! -w "$target" ]; then
+      echo "install_answer_rules: $target cannot be written by this account" >&2
+      exit 1
+    fi
+    backup="$target.bak-answer-rules"
+    cp "$target" "$backup"
+    {
+      cat "$backup"
+      section_for "$backup"
+    } > "$target" || exit 1
+    echo "added the write-time section to $target"
+  fi
   exit 0
 fi
 
@@ -64,6 +100,8 @@ if [ ! -f "$target" ]; then
     cat "$format"
     printf '\n'
     cat "$rules"
+    printf '\n'
+    cat "$write_rules"
   } > "$target" || exit 1
   echo "created: $target"
   exit 0
@@ -77,6 +115,12 @@ fi
 
 backup="$target.bak-answer-rules"
 cp "$target" "$backup"
+# 1 when this run adds the write-time section, asked once so the second output line and the
+# write agree.
+adds_section=1
+if grep -qF "$write_mark" "$backup"; then
+  adds_section=0
+fi
 
 # 1 when the file has an Answer Format heading outside every ``` fence, else 0.
 has_section="$(awk '
@@ -86,6 +130,7 @@ has_section="$(awk '
 ' "$backup")"
 
 if [ "$has_section" = 1 ]; then
+  {
   awk -v rules="$rules" '
     function emit(   line) {
       while ((getline line < rules) > 0) print line
@@ -106,13 +151,16 @@ if [ "$has_section" = 1 ]; then
     in_format && lv > 0 && lv <= format_level { emit(); print ""; in_format = 0; done = 1 }
     { print }
     END { if (in_format) { print ""; emit() } }
-  ' "$backup" > "$target" || exit 1
+  ' "$backup" || exit 1
+  section_for "$backup"
+  } > "$target" || exit 1
   echo "added to the Answer Format section of $target (backup: $backup)"
 elif grep -qi 'skeptical review' "$backup"; then
   {
     cat "$backup"
     printf '\n'
     cat "$rules"
+    section_for "$backup"
   } > "$target" || exit 1
   echo "appended the rules to $target, which has the format under another heading (backup: $backup)"
 else
@@ -122,6 +170,10 @@ else
     cat "$format"
     printf '\n'
     cat "$rules"
+    section_for "$backup"
   } > "$target" || exit 1
   echo "appended the format and the rules to $target (backup: $backup)"
+fi
+if [ "$adds_section" = 1 ]; then
+  echo "added the write-time section to $target"
 fi

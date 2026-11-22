@@ -1,7 +1,7 @@
 ---
 name: v-write
 description: >
-  Write-time sheet for V code. Load it before writing or editing any .v file: seventeen V language
+  Write-time sheet for V code. Load it before writing or editing any .v file: twenty V language
   facts, each with a program that was run, six structural defaults, and the per-function loop
   (contract, failing test, code, break it on purpose).
   Not a review step; /vreview still runs before a commit.
@@ -41,18 +41,21 @@ output changed.
 | 16 | `.free()` must have a pointer receiver. | `fn (r Res) free()` was refused by the compiler. (`p12_free_receiver.v`) | `fn (r &Res) free()` or `fn (mut r Res) free()`. |
 | 17 | On Windows `os.getuid()` is 0 and `os.lstat` reports inode 0. | Windows: `getuid=0`, inode `0`. WSL: both non-zero. (`p13_windows_ids.v`) | Never tell users or files apart by uid or inode in code that also runs on Windows. |
 
-## 2. Recorded earlier, not rerun today
+| 18 | A `filelock.new_file` lock on Linux is lost when the process that holds it opens and closes the same file again. `filelock.new` is not affected, and on Windows neither kind is. | WSL: a second process was `refused` while the lock was held, then `acquired` after the holder opened and closed the file. `filelock.new` in WSL and both kinds on Windows: still `refused`. (`p14_filelock.v`) | While a `new_file` lock is held, never open the locked file again in that process. The run used `os.open` and `close`. |
+| 19 | `==` on two `&Struct` values compares the fields, not the addresses. | Two separate allocations: with equal fields `a == b` is `true`, with one field different it is `false`; `voidptr(a) == voidptr(b)` is `false`. (`p15_pointer_eq.v`) | To ask "is this the same object", compare `voidptr(a) == voidptr(b)`. |
+| 20 | A folder named like a module takes over `import <module>`, also for the runnable beside it. | With `cmd/mymod/` present, `v run cmd/cli` and `v run cmd/mymod` both stop with "bad module definition"; without it `cmd/cli` runs. (`t14_module_folder/`) | Never name a runnable's folder after the module it imports. Use `cmd/cli` or `examples/`. |
 
-Check before relying on one; move it to part 1 once it has a program.
+## 2. Recorded earlier, not reproduced
 
-- POSIX `os.filelock` locks are record locks: closing any descriptor of the file in the process
-  drops the lock.
-- `==` on two pointers to a struct with an interface field can fail in generated C; compare
-  `voidptr(a) == voidptr(b)`.
-- A folder named like the module it imports shadows that module.
-- A memory note says `v test file_test.v` also compiles sibling test files. Two runs today did
-  **not** show that: two test files in one folder (`t13/`), and two in one module beside a
-  module file. The note was about a `vlib` module and stays unconfirmed.
+Two older notes that the runs of 2026-11-22 did not show. Do not rely on either.
+
+- A memory note says `v test file_test.v` also compiles sibling test files. Two runs did **not**
+  show that: two test files in one folder (`t13/`), and two in one module beside a module file.
+  The note was about a `vlib` module.
+- A memory note says `==` on two pointers to a struct with an interface field can fail in the
+  generated C when the value behind the interface holds a C struct. `p15b_pointer_eq_c.v` builds
+  and runs with tcc and gcc on Windows and with tcc, gcc and clang in WSL. The note was about
+  several test files of `net.http` compiled together.
 
 ## 3. Structural defaults
 

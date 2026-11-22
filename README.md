@@ -17,7 +17,7 @@ WSL and macOS. Git is the sync mechanism; nothing is copied by hand.
 | `hooks/` | `hooks.json` (plugin hook wiring), `require_code_review.sh` (commit gate), `check_powershell_parse.ps1`, `check_ps1_file_parse.ps1` (reference copies, wired globally) |
 | `reference/` | `code-review-reference.html` quick reference, its `code-review-misses-data.js` table data, and the `code-review-misses.md` narrative corpus |
 | `tools/` | `review_cost.v`: what `/vreview` and `/adversarial-review` runs cost, read from Claude Code session transcripts (see below). `install_answer_rules.sh`: puts the answer rules of `global/` into a machine's `~/.claude/CLAUDE.md` (see below) |
-| `global/` | `answer-rules.md`, the standing rules for what follows a skeptical review ("a weakness you list is work to do"), and `answer-format.md`, the Answer Format block they belong under. One copy here, installed per machine |
+| `global/` | `answer-rules.md`, the standing rules for what follows a skeptical review ("a weakness you list is work to do"), and `answer-format.md`, the Answer Format block they belong under. `write-time-rules.md`, the section that tells a session to write a design brief before a change that adds behaviour and to load the V write-time sheet before editing a `.v` file. One copy here, installed per machine |
 
 ## The answer rules on every machine
 
@@ -37,6 +37,13 @@ and its first words say which of these it did. A changed file is first copied to
 `~/.claude/CLAUDE.md.bak-answer-rules`. To change a rule, edit `global/answer-rules.md` and the
 machine's own file together: the script does not update a section that is already installed.
 
+The same run appends the section of `global/write-time-rules.md` ("Before writing code: design
+brief, then the V write-time sheet") at the end of the file when no line holds that heading, and
+says so on a second line. A file it creates gets the section in the same write. The backup
+holds the file as it was before the run. It does not update a section that is already there.
+Run one install at a time: of two started together on one file, one failed in 6 of 30 rounds,
+with this step and without it. A heading that stands only inside a code fence counts as there.
+
 Its cases touch scratch files only, so on a system it has not run on yet (macOS, at the time of
 writing) run them before the script: `bash tests/install_answer_rules/run.sh`.
 
@@ -48,7 +55,7 @@ writing) run them before the script: `bash tests/install_answer_rules/run.sh`.
 | `/review-tools:phase-r` | A bug someone else found: reproduce it on the unfixed code before fixing it |
 | `/review-tools:review-respond <PR#> [review or comment] [owner/repo]` | One round of review on a PR, from a maintainer, another person or a bot such as Codex: fetch the findings (review bodies, inline comments and plain PR comments), check each against the code, reproduce each real bug with `/phase-r`, fix, run `/vreview`, commit, push to your fork, and reply where each finding was posted. Replaced `/codex-respond` on 2026-11-14 |
 | `/review-tools:design-brief` | Before the first edit of a change that adds behaviour: one page with the request, the smallest change, what is out of scope, the decisions that are the user's, and where each list came from. No source file is edited until the user approves it |
-| `/review-tools:v-write` | Before writing or editing a `.v` file: seventeen V language facts with a run program each, six structural defaults, and the loop for each function |
+| `/review-tools:v-write` | Before writing or editing a `.v` file: twenty V language facts with a run program each, six structural defaults, and the loop for each function |
 | `/review-tools:adversarial-review` | A multi-agent pass that tries to break a finished change; run it only with the user's go-ahead |
 
 `/luna-respond` was removed on 2026-11-14: it was a placeholder for a review service that was

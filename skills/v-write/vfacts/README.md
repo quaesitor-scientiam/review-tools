@@ -9,6 +9,10 @@ Get-ChildItem p*.v | ForEach-Object { "== $($_.Name)"; & S:\repo\vlang\v.exe run
 & S:\repo\vlang\v.exe test t12
 & S:\repo\vlang\v.exe -d some_flag test t12
 & S:\repo\vlang\v.exe test t13\a_test.v
+foreach ($p in 'collides\mymod|cmd/cli', 'collides\mymod|cmd/mymod', 'control\mymod|cmd/cli') {
+	$dir, $target = $p -split '\|'
+	Push-Location "t14_module_folder\$dir"; & S:\repo\vlang\v.exe run $target; Pop-Location
+}
 ```
 
 On another machine use its own `v`. In WSL, copy this folder to a Linux folder first and run
@@ -20,7 +24,8 @@ on 2026-11-22 with `-old-compiler -showcc`; none of the runs below printed it.)
 
 ## Output on 2026-11-22 (Windows `V 0.5.2 9621aa0` with tcc, and Ubuntu WSL `V 0.5.2 0eab96b`)
 
-Both systems printed the same lines, except `p09_ifdef.v` and `p13_windows_ids.v` as marked.
+Both systems printed the same lines, except `p09_ifdef.v`, `p13_windows_ids.v` and
+`p14_filelock.v` as marked.
 
 ```text
 == p01_defer.v
@@ -73,10 +78,29 @@ error: `.free()` methods should be defined on either a `(mut x &Res)`, or a `(x 
 == p13_windows_ids.v
 getuid is 0: true lstat inode of this program is 0: true
    (WSL, as an ordinary user: false and false)
+== p14_filelock.v   (Windows)
+filelock.new_file: second process while held: refused; this process opened and closed the file again; second process then: refused
+filelock.new: second process while held: refused; this process could not open the file again; second process then: refused
+== p14_filelock.v   (WSL)
+filelock.new_file: second process while held: refused; this process opened and closed the file again; second process then: acquired
+filelock.new: second process while held: refused; this process opened and closed the file again; second process then: refused
+== p15_pointer_eq.v
+two allocations with equal fields: a == b is true
+two allocations with one field different: a == d is false
+one allocation under two names: a == c is true
+addresses of the two allocations: voidptr(a) == voidptr(b) is false
+== p15b_pointer_eq_c.v
+pointer == where the interface value holds a C struct: true
 ```
 
 - `t12` without the flag: `OK`, 1 passed. With `-d some_flag`: `assert 1 == 2` fails.
 - `t13\a_test.v`: `OK`, although `b_test.v` beside it does not compile (Windows only; not run
   in WSL).
+- `t14_module_folder\collides\mymod`: `v run cmd/cli` and `v run cmd/mymod` both stop with
+  `bad module definition: ... imports module "mymod" but cmd/mymod/main.v is defined as module`
+  `` `main` ``. `t14_module_folder\control\mymod`, the same project without `cmd/mymod`:
+  `v run cmd/cli` prints `cmd/cli: hello from the root module mymod`. Same on both systems.
+- `p15b_pointer_eq_c.v` was also built with `-cc gcc` on Windows and with `-cc gcc` and
+  `-cc clang` in WSL: same line.
 
 Not run on macOS.
