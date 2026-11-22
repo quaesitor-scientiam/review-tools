@@ -4,5 +4,8 @@ Thumbs.db
 /tests/_work/
 *.exe
 *.exe.manifest
+# The same binaries on Linux and macOS, which have no extension.
+/probes/vprobe
+/tools/review_cost
 /detectors/.*.v3cc.*/
 /detectors/*.def
