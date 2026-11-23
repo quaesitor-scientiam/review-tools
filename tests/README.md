@@ -107,3 +107,9 @@ verdict, or ends "nothing flagged" for something it did not run, fails. It needs
 case per kind of target (no file, an Answer Format section in each position and spelling, a
 format under another heading, a code fence, CRLF lines, a link, a folder), and compares each
 result byte for byte. It needs only bash and awk, and exits with the number of failing checks.
+
+## The rev check
+
+`tests/check_pr_rev/run.sh` runs `hooks/check_pr_rev.sh` on scratch repositories, one per way a PR
+can stand to `main`: no rev, the next one, a skipped, lower or taken one, and titles
+that do not match.

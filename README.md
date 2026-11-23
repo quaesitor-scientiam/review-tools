@@ -14,7 +14,7 @@ WSL and macOS. Git is the sync mechanism; nothing is copied by hand.
 | `skills/v-write/`, `skills/design-brief/` | Write-time skills, used before the code exists: the V write-time sheet (with the programs behind each fact in `vfacts/`) and the one-page design brief (see below) |
 | `detectors/` | The detectors, one V program each (`detect_*.v`, same `<file> <base_copy_or_empty>` contract), and `run_detectors.v`, the batch runner: computes targets and base revision with git, compiles the detectors a run needs once into a cache in the user's own cache folder (`~/.cache/review-tools-bin`), keyed by each detector's source and the compiler, dispatches by a basename manifest. No bash needed |
 | `probes/` | `vprobe.v`, the executed probes `/vreview` hard rule 4 requires: `matrix` (base build against head build per place, kind of object and account), `race` (several copies of a command at once), `mutate` (one test run per one-line mutant, generated for the functions that changed), `trace` (which inputs each caller of a function is tested with) and `siblings` (which sites of one situation lack a call another site gained). The file's header describes the spec |
-| `hooks/` | `hooks.json` (plugin hook wiring), `require_code_review.sh` (commit gate), `check_powershell_parse.ps1`, `check_ps1_file_parse.ps1` (reference copies, wired globally) |
+| `hooks/` | `hooks.json` (plugin hook wiring), `require_code_review.sh` (commit gate), `check_reference.sh` and `check_pr_rev.sh` (run by the PR check too), `check_powershell_parse.ps1`, `check_ps1_file_parse.ps1` (reference copies, wired globally) |
 | `reference/` | `code-review-reference.html` quick reference, its `code-review-misses-data.js` table data, and the `code-review-misses.md` narrative corpus |
 | `tools/` | `review_cost.v`: what `/vreview` and `/adversarial-review` runs cost, read from Claude Code session transcripts (see below). `install_answer_rules.sh`: puts the answer rules of `global/` into a machine's `~/.claude/CLAUDE.md` (see below) |
 | `global/` | `answer-rules.md`, the standing rules for what follows a skeptical review ("a weakness you list is work to do"), and `answer-format.md`, the Answer Format block they belong under. `write-time-rules.md`, the section that tells a session to write a design brief before a change that adds behaviour and to load the V write-time sheet before editing a `.v` file. One copy here, installed per machine |
@@ -90,7 +90,8 @@ figures run high.
 ## Changing the rules
 
 See [CONTRIBUTING.md](CONTRIBUTING.md): a rev is the rule, its reference page entry and its
-corpus rows in one commit, and the commit gate checks all three.
+corpus rows in one commit, and the commit gate checks all three. Every change goes through a PR from
+a worktree of its own, and `.github/workflows/check.yml` checks it there.
 
 ## Install and update
 

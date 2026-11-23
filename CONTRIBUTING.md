@@ -15,8 +15,16 @@ It prints one line per problem and exits 1, or prints nothing and exits 0.
 ## 1. Pick the rev number
 
 Take the next number after the page subtitle (`Generated DATE, rev N` in
-`reference/code-review-reference.html`) and after `git log --oneline -5`. Pull first: several
-machines and sessions add revs, and two commits with the same rev must be renumbered by hand.
+`reference/code-review-reference.html`) on `origin/main`; fetch first. Several machines and
+sessions add revs: when another PR takes the number first, rebase and renumber the page, the rule
+text and the title. The check fails on the rebased branch until you have.
+
+A change that alters no rule takes no number: docs, tools, tests, wording, and corpus rows that
+name no new rule (those still go in both copies, section 4). When it touches `skills/` or
+`detectors/`, the gate still wants the page changed: add a changelog line marked `no rule change`.
+Taking a rule back is a rule change and takes the next number; the page's rev never goes down.
+The check only prints a notice when a `SKILL.md` changed and the rev did not, so a new rule
+without its rev is for the reviewer to see.
 
 ## 2. The rule: `skills/<skill>/SKILL.md`
 
@@ -80,10 +88,30 @@ before the closing `];`, as a JSON string (`json.dumps(..., ensure_ascii=False)`
 Convert Markdown to HTML in the cells: `&` `<` `>` as entities first, then `` `x` `` as
 `<code>x</code>`. The file is one line per row with literal `\n` escapes inside each string.
 
-## 5. Commit and push
+## 5. Branch, commit and PR
 
-One commit: `vreview: rev N - <short summary>`. The gate reads the rev from that subject. Push to
-`origin main`. If the gate blocks, its message lists each missing part.
+Every change goes through a PR; nothing is committed or pushed to `main`. Work in a worktree of
+its own. The main checkout stays on `main`, clean, and is only pulled: Claude Code loads the plugin
+from it live, so a branch checked out there changes the rules of every session on the machine.
+
+```sh
+git fetch origin
+git worktree add -b <branch> ../<folder> origin/main
+```
+
+One commit: `vreview: rev N - <short summary>`. The gate reads the rev from that subject. If it
+blocks, its message lists each missing part. Then push with `git push origin HEAD` and no `-u`: the
+branch keeps `origin/main` as its upstream, which the corpus comparison of the gate needs.
+
+The title of a rev's PR is the commit subject (`vreview: rev N - ...`); other PRs have a title of
+their own. `.github/workflows/check.yml` runs on every PR: the rev against `main`
+(`hooks/check_pr_rev.sh`), `hooks/check_reference.sh`, and the detector fixtures with a pinned V. It
+runs no probe self-test and nothing on Windows or macOS; run those by hand where they apply.
+
+Merge one PR at a time, with a squash whose subject is the PR title. When `main` moved, rebase
+first (`git fetch origin && git rebase origin/main`), renumber if needed, and push with
+`--force-with-lease`. Keep both sides' rows and changelog entries in a conflict. After the merge,
+`git worktree remove` the folder, delete the branch, and `git pull` in each machine's main checkout.
 
 A PR this repo learned from is a source, not something it fixes. Never let `fix`, `fixes`,
 `close`, `resolves` or another closing keyword come right before a PR or issue reference, even
@@ -91,7 +119,8 @@ across a line break: GitHub closes that PR when the commit reaches `main`. A sub
 "per-register fixes" over a body starting "vlang/v#31407 ..." closed vlang/v#31407 twice. Write
 "From vlang/v#31407 ..." instead. The gate blocks the pair in a commit command and, at push
 time on a branch with an upstream, in every unpushed commit (including a message given with
-`-F <file>`, which the commit check cannot see).
+`-F <file>`, which the commit check cannot see). Nothing checks a PR's title and body, where GitHub
+reads the same keywords: look at them before opening or merging.
 
 The `S:\Code Review` mirror (`/Volumes/SSData/Code Review/` on the Mac) holds copies of the three
 `reference/` files. Whoever syncs it copies them after checking the mirror still matches the

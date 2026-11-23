@@ -1,0 +1,67 @@
+# What the local commit gate checks, on every PR: a merge on GitHub does not pass through the gate.
+name: check
+
+on:
+  pull_request:
+    branches: [main]
+    # `edited`: the title holds the rev.
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  # V, the vlang/vc snapshot generated from that commit, and the vlang/tccbin commit (branch
+  # thirdparty-linux-amd64) with the GC library V links. `make local=1` fetches none of them.
+  # Change them together.
+  V_COMMIT: 593657221cd2ef2063d41979a7b827e8cb12ecd5
+  VC_COMMIT: 4bb0135a7d3af7dfe0a422172f0989271b05cb9f
+  TCC_COMMIT: 60d606e37e6afe1ac5801fd88c55036a56b7caae
+  V_C_ERROR_BUG_REPORT_DISABLED: '1'
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      # The PR merged into main, with all history.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Track main
+        # check_reference.sh compares the corpus copies with the upstream of the branch, and skips
+        # the comparison when there is none.
+        run: git checkout -q -b pr-check && git branch --set-upstream-to=origin/main
+      - name: Rev
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: bash hooks/check_pr_rev.sh . origin/main "$TITLE"
+      - name: Reference page and corpus
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          rev="$(printf '%s' "$TITLE" | grep -oE '^vreview: rev [0-9]+' | awk '{print $NF}')" || true
+          bash hooks/check_reference.sh . "$rev"
+      - name: Cases of the rev check
+        run: bash tests/check_pr_rev/run.sh
+      - name: Build V
+        run: |
+          git init -q "$RUNNER_TEMP/v" && cd "$RUNNER_TEMP/v"
+          git fetch -q --depth 1 https://github.com/vlang/v "$V_COMMIT"
+          git checkout -q FETCH_HEAD
+          git init -q vc
+          git -C vc fetch -q --depth 1 https://github.com/vlang/vc "$VC_COMMIT"
+          git -C vc checkout -q FETCH_HEAD
+          git init -q thirdparty/tcc
+          git -C thirdparty/tcc fetch -q --depth 1 https://github.com/vlang/tccbin "$TCC_COMMIT"
+          git -C thirdparty/tcc checkout -q FETCH_HEAD
+          make local=1
+          ./v version
+          echo "$PWD" >> "$GITHUB_PATH"
+      - name: Detector fixtures
+        run: bash tests/run_fixtures.sh
