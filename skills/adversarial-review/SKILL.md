@@ -282,7 +282,7 @@ applied, which is a row, not a new rule.
 
 This skill ships in the `review-tools` plugin (one git repository, installed at
 user scope on every machine). There is exactly one copy per machine, the clone;
-`git pull` / `git push` is the sync between the Mac, WSL and the Windows box.
-Edit the skill in the clone, commit, push; the other machine pulls. Nothing is
+git is the sync between the Mac, WSL and the Windows box. Edit the skill in a
+worktree, open a PR (see `CONTRIBUTING.md`); each machine pulls after the merge. Nothing is
 copied through `/Volumes/SSData`, no staging payload, no `sync_skills.sh`. See
 `MIGRATION.md` at the plugin root for install and update commands.
