@@ -77,10 +77,10 @@ Related consequences:
 
 - Detectors are V programs (`detectors/detect_*.v`) run through
   `detectors/run_detectors.v`, which owns all git access and compiles each
-  detector a run needs once into a hash-keyed cache in the user's own cache
+  detector a run needs once into a cache, keyed by source and compiler, in the user's own cache
   folder (`~/.cache/review-tools-bin`, or under `XDG_CACHE_HOME`). From the target
   repo: `v run <clone>/detectors/run_detectors.v <files>`. The compiler is
-  `$DETECT_V`, else the target repo's own `./v`, else `v` on `PATH`.
+  `$DETECT_V`, else `v` on `PATH`, else the target repo's own `./v`.
 - On Windows PowerShell do not run `bash skills/code-review/run_detectors.sh`;
   use the V runner (no bash/WSL needed).
 - `hooks/hooks.json` and `hooks/require_code_review.sh` are Claude Code wiring

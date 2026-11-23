@@ -4,7 +4,7 @@
 // The runner OWNS ALL GIT ACCESS. It computes the target file list and the base
 // revision once, extracts base-revision copies into a new private folder (mode
 // 0700, a random name under the OS temp dir), compiles each detectors/detect_*.v
-// the run needs once (cached by source hash in the user's own cache folder,
+// the run needs once (cached by source and compiler in the user's own cache folder,
 // os.cache_dir()/review-tools-bin, never in the shared temp dir, where another
 // account could plant a build under the predictable name) and hands every
 // detector plain paths only:
@@ -31,15 +31,17 @@
 //                mirrors the repo layout, and scans there.
 //   --only <s>   run only detectors whose name contains <s> (debug aid).
 //
-// Environment: DETECT_V names the V compiler used for the detectors (default:
-// the target repo's own ./v or v.exe, then `v` on PATH). Run from inside the
+// Environment: DETECT_V names the V compiler used for the detectors (default: `v` on
+// PATH, then the target repo's own ./v or v.exe). Run from inside the
 // target repo. From a Windows-created git worktree under WSL the drive-letter
 // `gitdir:` pointer is resolved to /mnt/<drive>/... and GIT_DIR/GIT_WORK_TREE
 // are exported for the git calls.
 //
 // Exit: 0 if no detector flagged; 1 if any detector exited 1 (candidates to
 // review — for enumerate-and-verify detectors that is not automatically a bug);
-// 2 on usage/environment errors.
+// 2 on usage/environment errors, and when a detector the run needs could not be built
+// or ended with any other exit: the rest still run and print, and the summary line
+// names those that gave no verdict.
 module main
 
 import os
@@ -117,6 +119,7 @@ mut:
 	base_copy map[string]string
 	vexe      string
 	bins      map[string]string
+	unbuilt   []string
 }
 
 fn main() {
@@ -159,6 +162,7 @@ fn main() {
 		i++
 	}
 
+	start_dir := os.getwd()
 	c.repo_root = resolve_repo_root() or {
 		eprintln('run_detectors: ${err}')
 		exit(2)
@@ -256,9 +260,13 @@ fn main() {
 	}
 
 	// Compile the detectors.
-	c.vexe = find_v(c.repo_root)
+	c.vexe = find_v(c.repo_root, start_dir)
 	if c.vexe == '' {
-		eprintln('run_detectors: no V compiler found (set DETECT_V, or run from a repo with ./v)')
+		eprintln('run_detectors: no V compiler found (set DETECT_V, put v on PATH, or run from a repo with ./v)')
+		c.quit(2)
+	}
+	compiler := compiler_id(c.vexe) or {
+		eprintln('run_detectors: ${err}')
 		c.quit(2)
 	}
 	det_dir := os.dir(os.real_path(@FILE))
@@ -280,13 +288,14 @@ fn main() {
 			}
 		}
 	}
-	c.compile_needed(det_dir, needed)
+	c.compile_needed(det_dir, needed, compiler)
 
 	os.chdir(c.scan_root) or { c.quit(2) }
 
 	// Run.
 	mut flagged := 0
 	mut ran := 0
+	mut errored := []string{}
 	mut skipped_all := true
 	suffix := if c.at_rev != '' { ' @ ${c.at_rev}' } else { '' }
 	mut base_label := if c.base_rev != '' { c.base_rev } else { 'none' }
@@ -336,6 +345,9 @@ fn main() {
 				}
 				else {
 					println('  [ERR${res.exit_code}] ${label:-45} ${last}')
+					if det !in errored {
+						errored << det
+					}
 				}
 			}
 		}
@@ -343,7 +355,18 @@ fn main() {
 			println('  (no detector applies to this file)')
 		}
 	}
-	println('=== summary: ${ran} detector runs, ${flagged} flagged ===')
+	mut no_verdict := ''
+	if c.unbuilt.len > 0 {
+		no_verdict += ', ${c.unbuilt.len} not built: ${c.unbuilt.join(', ')}'
+	}
+	if errored.len > 0 {
+		no_verdict += ', ${errored.len} ended in error: ${errored.join(', ')}'
+	}
+	println('=== summary: ${ran} detector runs, ${flagged} flagged${no_verdict} ===')
+	if no_verdict != '' {
+		// What those detectors would have said is unknown, so neither 0 nor 1 is true.
+		c.quit(2)
+	}
 	if skipped_all {
 		eprintln('(no detector matched any target file — nothing was checked)')
 		c.quit(2)
@@ -530,12 +553,25 @@ fn (mut c Ctx) extract_at(p string) {
 	os.write_file(dst, content) or { return }
 }
 
-// find_v picks the V compiler: $DETECT_V, the target repo's own binary
-// (v.exe on Windows, v elsewhere; never a Windows v.exe from Linux), then PATH.
-fn find_v(repo_root string) string {
+// find_v picks the V compiler: $DETECT_V (a name without a separator is looked up on
+// PATH, a relative path is from `start_dir`, the folder the run was started in), else
+// `v` on PATH, else the target repo's own binary (v.exe on Windows, v elsewhere; never
+// a Windows v.exe from Linux), else ''. PATH comes first because a target repo that is
+// a V checkout holds the compiler under development there: it would build the review's
+// own tools (rev 131).
+fn find_v(repo_root string, start_dir string) string {
 	env := os.getenv('DETECT_V')
 	if env != '' {
-		return env
+		if os.is_abs_path(env) {
+			return env
+		}
+		if env.contains_any('/\\') {
+			return os.join_path(start_dir, env)
+		}
+		return os.find_abs_path_of_executable(env) or { env }
+	}
+	if on_path := os.find_abs_path_of_executable('v') {
+		return on_path
 	}
 	$if windows {
 		for cand in ['v.exe', 'v'] {
@@ -550,14 +586,33 @@ fn find_v(repo_root string) string {
 			return p
 		}
 	}
-	return os.find_abs_path_of_executable('v') or { '' }
+	return ''
+}
+
+// compiler_id returns the SHA-256 of the compiler's executable, as hex, for the key of
+// the builds it makes. It is the content and not what `v version` prints: a compiler
+// built from uncommitted edits prints the same version as a clean one, and some print
+// no commit at all. A compiler that cannot be read, or is no regular file (reading a
+// FIFO or an endless device would hang the run), is an error.
+fn compiler_id(vexe string) !string {
+	st := os.stat(vexe) or { return error('cannot read the V compiler ${vexe}: ${err}') }
+	if st.get_filetype() != .regular {
+		return error('cannot read the V compiler ${vexe}: not a regular file')
+	}
+	data := os.read_bytes(vexe) or {
+		return error('cannot read the V compiler ${vexe}: ${err}')
+	}
+	return sha256.sum(data).hex()
 }
 
 // compile_needed builds each detector named in `needed` (detectors/<stem>.v) once
-// into a cache keyed by the source hash, so repeated runs do not recompile
-// unchanged detectors. The cache is in the user's own cache folder: a build found
-// there is run as this user, so it must not sit where another account can write.
-fn (mut c Ctx) compile_needed(det_dir string, needed map[string]bool) {
+// into a cache keyed by the hash of its source and of `compiler` (its `compiler_id`), so
+// repeated runs do not recompile unchanged detectors. The compiler is read once, before
+// the builds: one replaced during the run can leave a build under the old one's key. The
+// cache is in the user's own cache folder: a build found there is run as this user, so it
+// must not sit where another account can write. A detector whose source cannot be read or
+// does not compile has no entry in c.bins and its stem is in c.unbuilt.
+fn (mut c Ctx) compile_needed(det_dir string, needed map[string]bool, compiler string) {
 	cache := os.join_path(os.cache_dir(), 'review-tools-bin')
 	os.mkdir_all(cache, mode: 0o700) or {
 		eprintln('run_detectors: cannot create ${cache}: ${err}')
@@ -574,8 +629,12 @@ fn (mut c Ctx) compile_needed(det_dir string, needed map[string]bool) {
 	for stem in stems {
 		name := stem + '.v'
 		src := os.join_path(det_dir, name)
-		content := os.read_file(src) or { continue }
-		key := sha256.hexhash(content)[..16]
+		content := os.read_file(src) or {
+			eprintln('run_detectors: cannot read ${src}: ${err}')
+			c.unbuilt << stem
+			continue
+		}
+		key := sha256.hexhash('${content}\n${compiler}')[..16]
 		mut bin := os.join_path(cache, '${stem}-${key}')
 		$if windows {
 			bin += '.exe'
@@ -584,6 +643,7 @@ fn (mut c Ctx) compile_needed(det_dir string, needed map[string]bool) {
 			res := os.exec([c.vexe, '-o', bin, src])
 			if res.exit_code != 0 {
 				eprintln('run_detectors: ${name} failed to compile:\n${res.output}')
+				c.unbuilt << stem
 				continue
 			}
 		}
