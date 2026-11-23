@@ -216,6 +216,10 @@ from PowerShell with no bash or WSL:
 `S:\\repo\\vlang\\v.exe run "<expanded root>/detectors/run_detectors.v" <files>` from the
 checkout being reviewed (it builds the detectors a run needs once, into `review-tools-bin` in
 your own cache folder, `~/.cache` or `XDG_CACHE_HOME`, never the shared temp folder; rev 122).
+They are built with `DETECT_V`, else `v` on `PATH`, else the checkout's own `./v`, so a review in
+a worktree uses the installed compiler rather than the worktree's, and a build is reused only with
+a compiler of the same content (rev 131). The compiler is read once, before the builds, so one
+replaced during a run can leave a build under the old one's key.
 On WSL/macOS `v run ...` or the thin `run_detectors.sh` work the same. Past revisions:
 `--at <rev> <file>`; detectors themselves never call git.
 
@@ -669,6 +673,12 @@ run and its output (or the specific reason a detector could not run — e.g.
 platform-gated, file type not present in this diff). A detector that exists
 but was never invoked this review is the single most common way a "must"
 rule goes unexecuted; the log is what makes that visible instead of assumed.
+**A detector without a verdict is an incomplete batch (rev 131).** When the summary line ends with
+`N not built: <names>` or `N ended in error: <names>` the exit is 2 and those detectors decided
+nothing: fix the build, set `DETECT_V` or read the `[ERR]` row and rerun, or record each one in the
+log as not run with its error. Before rev 131 one that failed to compile was left out, one that
+crashed was counted as run, and the batch could exit 0. An empty or blank `.v` target ends 13 of
+the detectors this way: they take it as unreadable.
 
 Work through every angle yourself. For each angle, surface up to 6 candidates
 (uncapped in High-risk/Regression mode — see Phase 0's Mode Selection) with

@@ -228,6 +228,44 @@ smoke() { # $1=label $2=expected rc $3=regex the output must match, rest=runner 
     fi
 }
 commit_all() { git add -A && git -c user.name=f -c user.email=f@x -c commit.gpgsign=false commit -q -m "$1"; }
+# The compiler the runners pick here, and its id as they put it in a build's key.
+vreal="$(type -P -- "${vexe:-v}")"
+vid="$([ -n "$vreal" ] && sha256sum < "$vreal" | cut -c1-64)"
+check_eq() { # $1=label $2=got $3=wanted
+    if [ "$2" = "$3" ]; then
+        pass=$((pass+1)); [ -n "${VERBOSE:-}" ] && echo "  [ OK ] runner-smoke/$1"
+    else
+        fail=$((fail+1)); failures+=("runner-smoke/$1: got '$2', wanted '$3'")
+        echo "  [FAIL] runner-smoke/$1: got '$2', wanted '$3'"
+    fi
+}
+# mkwrap <file> <tag> <log>: a compiler of its own content that logs "<tag> <what it builds>"
+# and runs the real one.
+mkwrap() {
+    mkdir -p "$(dirname "$1")"
+    printf '#!/bin/sh\n# compiler %s\nfor a; do :; done\necho "%s $(basename "$a" .v)" >> "%s"\nexec "%s" "$@"\n' \
+        "$2" "$2" "$3" "$vreal" > "$1" && chmod +x "$1"
+}
+# log_of <log> <stem prefix>: the builds of that kind in a mkwrap log, on one line.
+log_of() { grep " $2" "$1" 2>/dev/null | tr '\n' ';'; }
+# path_without <name> <path>: the path without any program of that name. A folder that holds
+# one is replaced by links to the rest of it.
+path_without() {
+    local out="$work/without-$1-$RANDOM" d
+    mkdir -p "$out"; local res="$out"
+    local IFS=:
+    for d in $2; do
+        if [ -x "$d/$1" ] && [ ! -d "$d/$1" ]; then
+            ln -s "$d"/* "$out/" 2>/dev/null; rm -f "$out/$1"
+        else
+            res="$res:$d"
+        fi
+    done
+    printf '%s' "$res"
+}
+no_v_path="$(path_without v "$PATH")"
+no_sha_path="$(path_without sha256sum "$PATH")"
+no_hash_path="$(path_without shasum "$no_sha_path")"
 # plant <dir> <stem> <source> <shell line>: an executable named as the runner names
 # its cached build of <source>, so a case can see whether the runner runs it. The
 # old file is removed first: one that was just run cannot be rewritten in place
@@ -236,9 +274,9 @@ plant() {
     local key f
     if [ "$2" = run_detectors ]; then
         # The runner's key covers the folder of its source too, as run_detectors.sh computes it.
-        key="$( { printf '%s\n' "$(cd "$(dirname "$3")" && pwd -P)"; cat "$3"; } | sha256sum | cut -c1-16)"
+        key="$( { printf '%s\n' "$(cd "$(dirname "$3")" && pwd -P)" "$vid"; cat "$3"; } | sha256sum | cut -c1-16)"
     else
-        key="$(sha256sum "$3" | cut -c1-16)"
+        key="$( { cat "$3"; printf '\n%s' "$vid"; } | sha256sum | cut -c1-16)"
     fi
     f="$1/$2-$key"
     if ! { mkdir -p "$1" && rm -f "$f" && printf '#!/bin/sh\n%s\n' "$4" > "$f" && chmod +x "$f"; }; then
@@ -270,6 +308,8 @@ runner_cases() {
     smoke $p/only-equals-form 1 'summary: 1 detector runs, 1 flagged' --only=lenient_parse vlib/x/parse.v
     smoke $p/missing-named-target-is-reported 1 'skipped: doc/missing\.md' doc/missing.md doc/docs.md
     smoke $p/target-no-detector-takes-is-reported 1 'no detector applies to this file' notes.txt doc/docs.md
+    # The needed detectors are those of every target, not of the last one only.
+    smoke $p/first-target-decides-what-is-needed-too 1 'summary: 1 detector runs, 1 flagged ===' --only settings_arm_parity vlib/h2a/h2_mux_conn.v doc/docs.md
     # A cold cache builds only what the run needs, with the compiler find_v picks.
     runner=(env "XDG_CACHE_HOME=$work/cold-$p" "${saved[@]}")
     smoke $p/cold-cache-builds-the-needed-detector 1 'summary: 1 detector runs, 1 flagged' --only lenient_parse vlib/x/parse.v
@@ -337,6 +377,120 @@ runner_cases() {
         smoke $p/the-checkout-runs-its-own-detectors-after-a-copy 1 'FLAG\] detect_lenient_parse' \
             --only lenient_parse vlib/x/parse.v
     fi
+    # The compiler is part of both build keys (rev 131): a build is reused only with the same
+    # compiler, whatever path it is named by. Each wrapper logs its own tag and what it built.
+    local vw="$work/vw-$p" vl="$work/vlog-$p" vc
+    rm -f "$vl"
+    mkwrap "$vw/one" one "$vl"; mkwrap "$vw/two" two "$vl"; ln -sfn "$vw/one" "$vw/link"
+    for vc in one one two one link; do
+        runner=(env "XDG_CACHE_HOME=$work/vk-$p" "DETECT_V=$vw/$vc" "${saved[@]}")
+        smoke $p/runs-with-compiler-$vc 1 'FLAG\] detect_lenient_parse' --only lenient_parse vlib/x/parse.v
+    done
+    check_eq $p/another-compiler-rebuilds-and-the-same-one-does-not "$(log_of "$vl" detect_)" \
+        'one detect_lenient_parse;two detect_lenient_parse;'
+    [ "$p" = sh ] && check_eq $p/another-compiler-rebuilds-the-runner "$(log_of "$vl" run_detectors)" \
+        'one run_detectors;two run_detectors;'
+    # A compiler that cannot be read ends the run, builds in the cache or not.
+    # Not a FIFO either, or any other special file: reading one would hang the run.
+    mkfifo "$vw/fifo"
+    local unreadable=(/no/such/v no_such_v_name "$vw" "$vw/fifo")
+    # Root reads a file without read permission, so that one is no case for root.
+    mkwrap "$vw/noread" noread "$vl"; chmod 111 "$vw/noread"
+    [ "$(id -u)" -ne 0 ] && unreadable+=("$vw/noread")
+    for vc in "${unreadable[@]}"; do
+        runner=(env "XDG_CACHE_HOME=$work/vk-$p" "DETECT_V=$vc" "${saved[@]}")
+        smoke $p/unreadable-compiler-ends-the-run 2 "cannot read the V compiler $vc( |:|\$)" --only lenient_parse vlib/x/parse.v
+    done
+    # Which compiler: DETECT_V (a bare name is looked up on PATH), else `v` on PATH, else the
+    # target repo's own. The wrapper in the target repo must not be used before the one on PATH.
+    rm -f "$vl"
+    mkwrap "$vw/named/vnamed" named "$vl"; mkwrap "$vw/path/v" path "$vl"; mkwrap "$r/v" repo "$vl"
+    runner=(env "PATH=$vw/named:$PATH" "XDG_CACHE_HOME=$work/vn-$p" DETECT_V=vnamed "${saved[@]}")
+    smoke $p/a-bare-compiler-name-is-looked-up-on-path 1 'FLAG\] detect_lenient_parse' --only lenient_parse vlib/x/parse.v
+    check_eq $p/the-named-compiler-built "$(log_of "$vl" detect_)" 'named detect_lenient_parse;'
+    # A DETECT_V with a separator is a path from the folder the run starts in, here two below
+    # the repo root: from the cache folder, where the builds run, it leads nowhere.
+    rm -f "$vl"; r="$r/vlib/x"
+    runner=(env "XDG_CACHE_HOME=$work/vs-$p" "DETECT_V=../../../vw-$p/one" "${saved[@]}")
+    smoke $p/a-relative-compiler-path-is-from-the-start-folder 1 'FLAG\] detect_lenient_parse' --only lenient_parse vlib/x/parse.v
+    check_eq $p/the-relative-compiler-built "$(log_of "$vl" detect_)" 'one detect_lenient_parse;'
+    r="$work/runner-smoke"
+    rm -f "$vl"
+    runner=(env -u DETECT_V "PATH=$vw/path:$PATH" "XDG_CACHE_HOME=$work/vp-$p" "${saved[@]}")
+    smoke $p/with-v-on-path-and-in-the-repo 1 'FLAG\] detect_lenient_parse' --only lenient_parse vlib/x/parse.v
+    check_eq $p/the-compiler-on-path-built "$(cut -d' ' -f1 "$vl" 2>/dev/null | sort -u | tr '\n' ';')" 'path;'
+    rm -f "$vl"
+    runner=(env -u DETECT_V "PATH=$no_v_path" "XDG_CACHE_HOME=$work/vr-$p" "${saved[@]}")
+    smoke $p/with-v-in-the-repo-only 1 'FLAG\] detect_lenient_parse' --only lenient_parse vlib/x/parse.v
+    check_eq $p/the-repos-own-compiler-built "$(cut -d' ' -f1 "$vl" 2>/dev/null | sort -u | tr '\n' ';')" 'repo;'
+    rm -f "$r/v"
+    mkdir "$r/v"
+    smoke $p/a-folder-named-v-is-no-compiler 2 'no V compiler found' --only lenient_parse vlib/x/parse.v
+    rmdir "$r/v"
+    : > "$r/v"; chmod 644 "$r/v"
+    smoke $p/a-file-that-cannot-run-is-no-compiler 2 'no V compiler found' --only lenient_parse vlib/x/parse.v
+    rm -f "$r/v"
+    smoke $p/no-compiler-at-all 2 'no V compiler found' --only lenient_parse vlib/x/parse.v
+    # Where sha256sum is missing the script hashes with shasum; without either it says so. An
+    # empty hash would give every runner text and compiler one key.
+    if [ "$p" = sh ]; then
+        if PATH="$no_sha_path" type -P shasum >/dev/null; then
+            runner=(env "PATH=$no_sha_path" "XDG_CACHE_HOME=$work/vh-$p" "${saved[@]}")
+            smoke $p/shasum-stands-in-for-sha256sum 1 'FLAG\] detect_lenient_parse' --only lenient_parse vlib/x/parse.v
+            check_eq $p/the-shasum-key-is-a-key "$(ls "$work/vh-$p/review-tools-bin" | grep -cE '^run_detectors-[0-9a-f]{16}$')" 1
+        fi
+        runner=(env "PATH=$no_hash_path" "XDG_CACHE_HOME=$work/vi-$p" "${saved[@]}")
+        smoke $p/no-hash-program 2 'neither sha256sum nor shasum' --only lenient_parse vlib/x/parse.v
+    fi
+    # A detector that does not build is named and the run exits 2; before rev 131 it was left
+    # out and the run could exit 0. In this copy one detector does not compile, one is gone.
+    local br="$work/rt-broken"
+    if [ ! -d "$br" ]; then
+        mkdir -p "$br/skills/code-review"
+        cp -r "$root/detectors" "$br/"
+        cp "$detdir/run_detectors.sh" "$br/skills/code-review/"
+        printf 'module main\n\nfn main() {\n\tno_such_function()\n}\n' > "$br/detectors/detect_info_leak.v"
+        rm "$br/detectors/detect_unsafe_blocks.v"
+    fi
+    if [ "$p" = sh ]; then
+        runner=(env "XDG_CACHE_HOME=$work/xb" bash "$br/skills/code-review/run_detectors.sh")
+    else
+        "$vexe" -o "$work/bin/rd-broken" "$br/detectors/run_detectors.v" >/dev/null 2>&1
+        runner=(env "XDG_CACHE_HOME=$work/xb" "$work/bin/rd-broken")
+    fi
+    smoke $p/unbuilt-detector-is-named 2 'summary: 1 detector runs, 1 flagged, 1 not built: detect_info_leak ===' --only _le vlib/x/parse.v
+    smoke $p/unbuilt-detector-leaves-the-others-running 2 'FLAG\] detect_lenient_parse' --only _le vlib/x/parse.v
+    smoke $p/unbuilt-detector-is-not-a-pass 2 'summary: 1 detector runs, 0 flagged, 1 not built: detect_info_leak ===' \
+        --at master --only _le vlib/x/parse.v
+    smoke $p/missing-detector-source-is-named 2 'summary: 0 detector runs, 0 flagged, 1 not built: detect_unsafe_blocks ===' \
+        --only unsafe_blocks vlib/x/parse.v
+    smoke $p/every-unbuilt-detector-is-named 2 ', 2 not built: detect_info_leak, detect_unsafe_blocks ===' vlib/x/parse.v
+    # Only a detector the run needs counts: neither of the two applies to a .md target.
+    smoke $p/unbuilt-detector-that-no-target-needs-does-not-count 1 'summary: 1 detector runs, 1 flagged ===' doc/docs.md
+    # An unbuilt detector did match: the run must not say that none did.
+    check_eq $p/unbuilt-is-not-reported-as-unmatched \
+        "$(cd "$r" && unset GIT_DIR GIT_WORK_TREE && timeout "$timeout_s" "${runner[@]}" --only info_leak vlib/x/parse.v 2>&1 | grep -c 'no detector matched')" 0
+    # A detector that ends in any other way than exit 0 or 1 gave no verdict: it is named, once
+    # however many targets it failed on, and the run exits 2 (rev 131; it could exit 0 before).
+    plant "$work/xe-$p/review-tools-bin" detect_lenient_parse "$lp" 'echo CRASHED; exit 7'
+    if [ "$p" = sh ]; then
+        runner=(env "XDG_CACHE_HOME=$work/xe-$p" bash "$br/skills/code-review/run_detectors.sh")
+    else
+        runner=(env "XDG_CACHE_HOME=$work/xe-$p" "$work/bin/rd-broken")
+    fi
+    smoke $p/unbuilt-and-failed-detectors-are-both-named 2 \
+        ', 1 not built: detect_info_leak, 1 ended in error: detect_lenient_parse ===' --only _le vlib/x/parse.v
+    runner=(env "XDG_CACHE_HOME=$work/xe-$p" "${saved[@]}")
+    smoke $p/failed-detector-is-not-a-pass 2 'summary: 1 detector runs, 0 flagged, 1 ended in error: detect_lenient_parse ===' \
+        --only lenient_parse vlib/x/parse.v
+    smoke $p/failed-detector-is-named-once 2 'summary: 2 detector runs, 0 flagged, 1 ended in error: detect_lenient_parse ===' \
+        --only lenient_parse vlib/x/parse.v vlib/h2a/h2_a.v
+    plant "$work/xe-$p/review-tools-bin" detect_lenient_parse "$lp" 'kill -9 $$'
+    smoke $p/killed-detector-is-not-a-pass 2 '1 ended in error: detect_lenient_parse ===' --only lenient_parse vlib/x/parse.v
+    # The one that fails runs first (the order is by name), so the other one's row comes after it.
+    plant "$work/xf-$p/review-tools-bin" detect_info_leak "$root/detectors/detect_info_leak.v" 'echo CRASHED; exit 7'
+    runner=(env "XDG_CACHE_HOME=$work/xf-$p" "${saved[@]}")
+    smoke $p/failed-detector-leaves-the-others-running 2 'FLAG\] detect_lenient_parse' --only _le vlib/x/parse.v
     runner=("${saved[@]}")
     r="$work/runner-smoke-main"
     smoke $p/no-master-falls-back-to-main 1 "$docs_flag"

@@ -58,6 +58,13 @@ run), the private per-run folder (mode 0700, random name), and its removal after
 every run, flagged and failed ones included. Since rev 129 it also runs `--at` with a
 relative temp folder and with one spelled with `..` after a link, and runs a copy of
 review-tools and then the checkout with one build cache: each must use its own detectors.
+Since rev 131 it also runs with compilers of different content (a build is reused only with one
+of the same content, whatever path names it), ones that cannot be read (missing, a folder, a
+FIFO), the compiler order (`DETECT_V`, then `v` on `PATH`, then the target repo's own), a
+relative `DETECT_V` from a folder below the repo root, a PATH without `sha256sum` (and without
+`shasum` too), and a copy with a detector that
+does not compile and one whose source is gone: both are named and the run exits 2, as for a
+detector that ends in any way but exit 0 or 1.
 `FIXTURE_SMOKE_ONLY=1 bash tests/run_fixtures.sh` runs everything but the
 per-detector cases, for a mutation run over `run_detectors.v`.
 
