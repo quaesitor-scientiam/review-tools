@@ -65,6 +65,10 @@ relative `DETECT_V` from a folder below the repo root, a PATH without `sha256sum
 `shasum` too), and a copy with a detector that
 does not compile and one whose source is gone: both are named and the run exits 2, as for a
 detector that ends in any way but exit 0 or 1.
+Since rev 132 it also runs with an empty `TMPDIR`, which must mean /tmp: on macOS the runner reads
+`TMPDIR` itself, since V's `os.temp_dir()` there is always /tmp. Two more cases start it from
+a subfolder with a relative `TMPDIR`, which is read from that subfolder. vprobe's self-test
+has the `..` case and the empty case too.
 `FIXTURE_SMOKE_ONLY=1 bash tests/run_fixtures.sh` runs everything but the
 per-detector cases, for a mutation run over `run_detectors.v`.
 
