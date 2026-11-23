@@ -637,6 +637,7 @@ recall-driven failure mode this skill has repeatedly found unreliable.
 - [ ] Reference-grammar trace (Angle K, rev 101): <reference function and its full line range, one row per consuming branch with adjacency and nesting probe results, plus the caller's line range and a leftover row per token class (rev 104)> (or "no model of another tool's grammar in this diff")
 - [ ] Comment ledger (Angle I, rev 101): <one row per line `detect_external_behavior_claims` lists, and per comment line a rerun's fix adds> (or "no new comment states what another tool does")
 - [ ] Mutation log (Angle J): <one row per added `||`, `&&`, `if` guard, early return, carried-state boundary (unchanged lines included), input advance, and member of an added `in [...]` list, from the generated inventory (rev 104): mutation command, test that fails, result> (or "none — no added conditions")
+- [ ] Required checks (Angle J, rev 134): <per check the project's guide or CI requires for the changed area: command, where it ran, summary line; per failing file the test, assert and message on base and head; a check not run with its reason and the user's answer> (or "none required — the guide and CI files read")
 - [ ] Exclusions declared: <what and why> (or "none — full scope covered")
 ```
 
@@ -3762,6 +3763,35 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   job's `-cc tcc -no-retry-compilation`. `exec_handles_windows_test.c.v` in the same folder
   says so in a comment and loads the function by name. Every local run passed through the
   fallback to gcc.
+- **The checks the project requires are run to the end in every round (rev 134).** Read the
+  reviewed project's own guide (`AGENTS.md`, `CONTRIBUTING.md`) and its CI configuration, list
+  the checks they require for the changed area, and run each one on the code the round ends
+  with: a run from before the last edit is an earlier round's run. The tests of the changed
+  files do not stand in for a suite the guide names; the suite is there for what else depends on
+  the change. "To the end" means fail-fast off, no time limit reached, and the runner's own
+  summary line read. A check that is not run (a system this machine lacks, a run too long, one
+  the guide says to ask about first) is named with its reason and put to the user (hard rule 2).
+  **A file that fails is compared with base by what failed.** Run the same check on base, built
+  the same way on the same machine; one such run serves every round until base changes. For
+  each file that fails on head, write each failing test with its assert and message (or the
+  compile error) on both sides, with paths, temporary names, cache keys and process ids taken
+  out. A difference that stays when both sides are rerun is a finding. Equal exit codes are not
+  "the same failure": under `v test` two different failed asserts and a compile error give the
+  same one. A file that stops before its tests run (a compile or link error, a missing header)
+  tested nothing on that side: list it as not run, even when base stops the same way.
+  **In vlang, for a change in `cmd/v` or `vlib/v`**, first run
+  `vlib/v/gen/fastc/compiler_bootstrap_test.v` on Linux, 30 to 45 s: it builds `cmd/v` with the
+  FastC generator, which refuses code that the C backend takes. FastC cannot build `cmd/v` for
+  Windows at all (it refuses a `spawn` in `driver.v`), and there the test passes with 0 asserts,
+  so a pass on Windows says nothing. It comes before `v test vlib/v/`, which `AGENTS.md`
+  requires, and does not replace it.
+  Missed on vlang/v#31848 (found 2026-11-23, in the branch since 9ea0bfa719, 2026-11-14, so
+  through adversarial rounds 8 to 11 and their inline passes): FastC refuses the loop
+  `for access in [C.O_RDONLY, C.O_WRONLY]` in `cmd/v/toolcache_nix.c.v`, so `v -b fastc cmd/v`
+  failed. The rounds' notes record the test files of the changed code and no run of the suite.
+  When it was run, 54 of its failing files failed on plain master on that machine too (some need
+  `sqlite3.h` or X11, which it lacks), and the first comparison, by exit code, had to be redone
+  by failing test, assert and message.
 - **Equivalent is judged at the changed function's own result (rev 115).** A survivor is
   equivalent only when the mutated function returns and stores the same things as before.
   When another function makes up for the difference later (a second look before use), the
@@ -4332,6 +4362,9 @@ Acceptance-regression table (Angle K):
 <vocabulary entry — where the old code accepts it (file:line) — valid program — old build result — new build result — disposition> (or "no new or widened rejection in this diff"). On a rerun: the whole PR's inventory, re-run this pass from its file (rev 100), named with its path and row count
 Base-vs-head variation table (Angle J):
 <rule — shape — base result — head result — same / program justifying the change / finding> (or "N/A — reason")
+
+Required checks (Angle J, rev 134):
+<check — where the guide or CI requires it (file:line) — command and system — summary line — per failing file: test, assert and message on base and on head, same / finding; not run: reason and the user's answer> (or "none required — the guide and CI files read")
 ```
 
 Every artifact above is required output, not optional detail — an item left
