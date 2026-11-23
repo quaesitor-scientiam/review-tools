@@ -354,6 +354,51 @@ expect_exit foreign 2 "$x/foreign.out" $?
 has foreign "$x/foreign.out" 'was not made by vprobe'
 same_file foreign "$x/foreign/root/data" precious
 
+# Without `work` the probe makes a folder of its own in the temp folder: mode 700, a name with a
+# random part, so nothing planted at the old name `vprobe_<pid>` is used. It is removed when the
+# probe ends, a failed run included (rev 129). `cmd` records the folder it runs in.
+d="$x/tmpd"
+mkdir -p "$d" "$x/elsewhere"
+echo '{"base": "'$x'/base.sh", "head": "'$x'/base.sh", "cmd": "ls -ld {work} > '$x'/seen; sh {bin} {root}",
+  "setup": "mkdir -p {root}/cache", "kinds": ["own_file"], "places": ["private: cache"]}' > "$x/default.json"
+TMPDIR="$d" "$P" matrix "$x/default.json" > "$x/default.out" 2>&1
+expect_exit default-work 0 "$x/default.out" $?
+has default-work "$x/seen" '^drwx------.* .*/vprobe_[0-9]+_[0-9a-f]{16}$'
+echo '{"base": "'$x'/base.sh", "head": "'$x'/base.sh", "cmd": "sh {bin} {root}", "prepare": "exit 5",
+  "places": ["private: cache"]}' > "$x/default_fails.json"
+TMPDIR="$d" "$P" matrix "$x/default_fails.json" > "$x/default_fails.out" 2>&1
+expect_exit default-work-failed 2 "$x/default_fails.out" $?
+has default-work-failed "$x/default_fails.out" 'prepare failed'
+ls -A "$d" > "$x/left.out"
+lacks default-work-removed "$x/left.out" '.'
+# A relative temp folder: the probe works inside its folder, so it must keep the full path.
+mkdir -p "$x/relrun/reltmp"
+(cd "$x/relrun" && TMPDIR=reltmp "$P" matrix "$x/default.json" > "$x/relrun.out" 2>&1)
+expect_exit default-work-relative 0 "$x/relrun.out" $?
+ls -A "$x/relrun/reltmp" > "$x/relleft.out"
+lacks default-work-relative-removed "$x/relleft.out" '.'
+# A temp folder spelled with `..` after a link is where the system reads it: in the parent of
+# the link's target, not where removing `..` by text leads. `{work}` names that folder with no
+# `..` left, so a plain `cd` (which removes `..` by text) reaches it too.
+mkdir -p "$x/dd/real/inside" "$x/dd/top"
+ln -s "$x/dd/real/inside" "$x/dd/top/lnk"
+xr=$(cd -P "$x" && pwd -P)
+echo '{"base": "'$x'/base.sh", "head": "'$x'/base.sh", "cmd": "cd {work} && pwd -P > '$x'/seen_dd; sh {bin} {root}",
+  "setup": "mkdir -p {root}/cache", "kinds": ["own_file"], "places": ["private: cache"]}' > "$x/dotdot.json"
+TMPDIR="$x/dd/top/lnk/.." "$P" matrix "$x/dotdot.json" > "$x/dotdot.out" 2>&1
+expect_exit default-work-dotdot 0 "$x/dotdot.out" $?
+has default-work-dotdot "$x/seen_dd" "^$xr/dd/real/vprobe_[0-9]+_[0-9a-f]{16}\$"
+# A folder open to everyone, and a link to another folder, both planted at the old name.
+TMPDIR="$d" sh -c 'mkdir -m 777 "$TMPDIR/vprobe_$$" && exec "$0" matrix "$1"' "$P" "$x/default.json" > "$x/planted.out" 2>&1
+expect_exit planted-folder 0 "$x/planted.out" $?
+# Only the planted folder (one `_`): the probe's own folders have two.
+ls -A $(find "$d" -maxdepth 1 -name 'vprobe_*' ! -name 'vprobe_*_*') > "$x/planted_left.out" 2>&1
+lacks planted-folder "$x/planted_left.out" 'vprobe-work|root|template'
+TMPDIR="$d" sh -c 'ln -s "$2" "$TMPDIR/vprobe_$$" && exec "$0" matrix "$1"' "$P" "$x/default.json" "$x/elsewhere" > "$x/planted_link.out" 2>&1
+expect_exit planted-link 0 "$x/planted_link.out" $?
+ls -A "$x/elsewhere" > "$x/elsewhere.out"
+lacks planted-link "$x/elsewhere.out" '.'
+
 # ---------------------------------------------------------------- race
 r="$tmp/r"
 mkdir -p "$r"
@@ -562,6 +607,18 @@ echo '{"source": "'$s'/sib_fixed.v", "changed_from": "'$s'/sib_base.v", "markers
 "$P" siblings "$s/fixed.json" > "$s/fixed.out" 2>&1
 expect_exit siblings-fixed 0 "$s/fixed.out" $?
 has siblings-fixed "$s/fixed.out" '^0 rows'
+
+# ---------------------------------------------------------------- asm
+# asm without `work` gets the same private folder, removed at the end (rev 129). The two
+# "assemblers" only record the folder they run in (`r1` inside the work folder).
+a="$tmp/a"
+mkdir -p "$a/tmpd"
+echo '{"sequences": ["nop"], "wrap": "{template}", "check": "true",
+  "assemblers": [{"name": "one", "cmd": "ls -ld $(cd .. && pwd) > '$a'/seen"}, {"name": "two", "cmd": "true"}]}' > "$a/asm.json"
+TMPDIR="$a/tmpd" "$P" asm "$a/asm.json" > "$a/asm.out" 2>&1
+has asm-default-work "$a/seen" '^drwx------.* .*/vprobe_asm_[0-9]+_[0-9a-f]{16}$'
+ls -A "$a/tmpd" > "$a/left.out"
+lacks asm-default-work-removed "$a/left.out" '.'
 
 echo "vprobe self-test: $((cases - fails))/$cases checks passed"
 [ "$fails" -eq 0 ]

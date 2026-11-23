@@ -26,7 +26,11 @@ fi
 # where another account could put a file under the predictable name first.
 cache="${XDG_CACHE_HOME:-$HOME/.cache}/review-tools-bin"
 mkdir -p -m 700 "$cache"
-key="$(sha256sum "$runner_src" | cut -c1-16)"
+# The key covers the folder the runner is built from as well as its text: the build finds the
+# detectors beside its source (`@FILE`), so a copy of review-tools with the same runner text
+# (a mutation run's scratch copy) must not hand its build, and its detectors, to this one.
+src_dir="$(cd "$(dirname "$runner_src")" && pwd -P)"
+key="$( { printf '%s\n' "$src_dir"; cat "$runner_src"; } | sha256sum | cut -c1-16)"
 bin="$cache/run_detectors-$key"
 if [ ! -x "$bin" ]; then
     # Compile from the cache dir: with the vlang checkout as cwd V resolves vlib

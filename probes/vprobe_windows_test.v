@@ -142,3 +142,39 @@ fn test_runs_at_once_keep_their_own_output() {
 		assert r.output.trim_space() == 'copy${i}'
 	}
 }
+
+// The default work folder is removed while the process is inside it, as `new_ctx` leaves it
+// (rev 129): Windows cannot remove the current folder, so `remove_own_work` leaves it first.
+fn test_the_default_work_folder_is_removed_from_inside_it() {
+	back := os.getwd()
+	path := make_default_work('vprobe_wintest')
+	os.mkdir(os.join_path(path, 'root')) or { panic(err) }
+	os.chdir(path) or { panic(err) }
+	remove_own_work()
+	left := os.exists(path)
+	os.chdir(back) or {}
+	assert !left, '${path} was left'
+}
+
+// The same with a relative temp folder: from inside the work folder it leads nowhere, so
+// `remove_own_work` moves to the folder's own parent instead.
+fn test_the_default_work_folder_is_removed_with_a_relative_temp_folder() {
+	back := os.getwd()
+	old := os.getenv_opt('TMPDIR')
+	scratch := os.join_path(os.vtmp_dir(), 'vprobe_reltmp_${os.getpid()}')
+	os.mkdir_all(os.join_path(scratch, 'reltmp')) or { panic(err) }
+	os.chdir(scratch) or { panic(err) }
+	os.setenv('TMPDIR', 'reltmp', true)
+	path := make_default_work('vprobe_wintest')
+	os.chdir(path) or { panic(err) }
+	remove_own_work()
+	left := os.exists(path)
+	os.chdir(back) or {}
+	if v := old {
+		os.setenv('TMPDIR', v, true)
+	} else {
+		os.unsetenv('TMPDIR')
+	}
+	os.rmdir_all(scratch) or {}
+	assert !left, '${path} was left'
+}

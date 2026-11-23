@@ -2768,7 +2768,13 @@ wire-parsing code.
   as root on Linux or WSL (`wsl -u root`), so the other-owner kinds and the root account
   run; started as a user it prints the rows it did not run, and those stay unverified.
   Give `work` a new or empty folder: the probe deletes `root` and `template` inside it and
-  refuses a folder it did not make. A cell it could not run is listed as skipped and the
+  refuses a folder it did not make. Or leave `work` out: the probe then makes its own folder in
+  the temp folder, with a random part in its name (mode 700 on Linux and macOS, 755 when
+  started as root, for `user`), and removes it when it exits, a failed run included; a probe
+  that is killed leaves it (rev 129). Until rev 129 that default was `<temp>/vprobe_<pid>`, a name
+  another account could create first; the probe took such an empty folder, or a link to one,
+  and ran its scripts from it (found by the sibling search of review-tools rev 122, which made
+  the same change to `run_detectors.v`). A cell it could not run is listed as skipped and the
   probe exits 1: a skipped cell is unverified, not clean.
   Read every row: `DIFF object` (one build keeps what the other removes), `DIFF exit`,
   `FAILS on both` (base failing too excuses nothing in a place the change touches), `DIFF

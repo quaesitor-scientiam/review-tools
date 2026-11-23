@@ -233,7 +233,14 @@ commit_all() { git add -A && git -c user.name=f -c user.email=f@x -c commit.gpgs
 # old file is removed first: one that was just run cannot be rewritten in place
 # (ETXTBSY). A plant that fails is a failure, never a silently real build.
 plant() {
-    local key f; key="$(sha256sum "$3" | cut -c1-16)"; f="$1/$2-$key"
+    local key f
+    if [ "$2" = run_detectors ]; then
+        # The runner's key covers the folder of its source too, as run_detectors.sh computes it.
+        key="$( { printf '%s\n' "$(cd "$(dirname "$3")" && pwd -P)"; cat "$3"; } | sha256sum | cut -c1-16)"
+    else
+        key="$(sha256sum "$3" | cut -c1-16)"
+    fi
+    f="$1/$2-$key"
     if ! { mkdir -p "$1" && rm -f "$f" && printf '#!/bin/sh\n%s\n' "$4" > "$f" && chmod +x "$f"; }; then
         fail=$((fail+1)); failures+=("runner-smoke: could not plant $f")
         echo "  [FAIL] runner-smoke: could not plant $f"
@@ -299,6 +306,36 @@ runner_cases() {
     else
         fail=$((fail+1)); failures+=("runner-smoke/$p/per-run-folders-are-removed: $n left in the temp dir")
         echo "  [FAIL] runner-smoke/$p/per-run-folders-are-removed: $n left in the temp dir"
+    fi
+    # A relative temp folder: under --at the runner works inside its per-run folder, where
+    # a relative path to the base copies leads nowhere (rev 129).
+    mkdir -p "$r/reltmp-$p"
+    runner=(env "TMPDIR=reltmp-$p" "${saved[@]}")
+    smoke $p/relative-temp-keeps-base-copies 1 "$docs_flag" --at feature --base master doc/docs.md
+    rm -rf "$r/reltmp-$p"
+    # A temp folder spelled with `..` after a link: the per-run folder goes where the system
+    # reads that path, in the parent of the link's target (rev 129).
+    mkdir -p "$work/dd-$p/real/inside" "$work/dd-$p/top"
+    ln -sfn "$work/dd-$p/real/inside" "$work/dd-$p/top/lnk"
+    plant "$work/cache-$p/review-tools-bin" detect_lenient_parse "$lp" 'echo "TMPREAL $(cd .. && pwd -P)"'
+    runner=(env "TMPDIR=$work/dd-$p/top/lnk/.." "XDG_CACHE_HOME=$work/cache-$p" "${saved[@]}")
+    smoke $p/dotdot-temp-is-read-as-the-system-reads-it 0 "TMPREAL $(cd -P "$work" && pwd -P)/dd-$p/real/run_detectors_" \
+        --at master --only lenient_parse vlib/x/parse.v
+    # Two copies of review-tools with the same runner text each run their own detectors: the
+    # runner finds them beside the source it was built from, so run_detectors.sh must not
+    # hand one copy's cached build to the other (rev 129). Only the sh entry point caches it.
+    if [ "$p" = sh ]; then
+        local copy="$work/rt-copy"
+        rm -rf "$copy" "$work/xc"
+        mkdir -p "$copy/skills/code-review"
+        cp -r "$root/detectors" "$copy/"
+        cp "$detdir/run_detectors.sh" "$copy/skills/code-review/"
+        printf 'module main\n\nfn main() {\n\tprintln("FROM THE COPY")\n}\n' > "$copy/detectors/detect_lenient_parse.v"
+        runner=(env "XDG_CACHE_HOME=$work/xc" bash "$copy/skills/code-review/run_detectors.sh")
+        smoke $p/a-copy-runs-its-own-detectors 0 'FROM THE COPY' --only lenient_parse vlib/x/parse.v
+        runner=(env "XDG_CACHE_HOME=$work/xc" "${saved[@]}")
+        smoke $p/the-checkout-runs-its-own-detectors-after-a-copy 1 'FLAG\] detect_lenient_parse' \
+            --only lenient_parse vlib/x/parse.v
     fi
     runner=("${saved[@]}")
     r="$work/runner-smoke-main"

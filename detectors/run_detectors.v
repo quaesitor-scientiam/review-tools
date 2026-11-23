@@ -383,11 +383,13 @@ fn default_base_branch() string {
 // make_private_dir makes a new folder under `parent` that only this user can use
 // (mode 0700) and whose name nobody can predict, and fails rather than use a path
 // that already exists: in a shared temp folder another account could have made
-// the old `run_detectors_<pid>` first, or put a link there.
+// the old `run_detectors_<pid>` first, or put a link there. `parent` is resolved once, as
+// the system reads it: one absolute path with no link and no `..`. Under --at the runner
+// works inside the folder, where a relative path led nowhere (rev 129).
 fn make_private_dir(parent string) !string {
 	// bytes, not read: read's signature changed between V releases, bytes did not.
 	suffix := rand.bytes(8) or { return error('cannot read random bytes: ${err}') }
-	path := os.join_path(parent, 'run_detectors_${os.getpid()}_${suffix.hex()}')
+	path := os.join_path(os.real_path(parent), 'run_detectors_${os.getpid()}_${suffix.hex()}')
 	os.mkdir(path, mode: 0o700) or {
 		return error('cannot create a private folder ${path}: ${err}')
 	}

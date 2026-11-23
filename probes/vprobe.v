@@ -69,8 +69,13 @@
 //   prepare      run once with the head build in the empty root, then kept as the template every
 //                cell starts from (for a tree only real commands can build)
 //   setup        run in every fresh root before the object is placed; must be deterministic
-//   work         scratch folder (default: a new one under the temp folder). It must be new, empty
-//                or one vprobe made: vprobe deletes `root` and `template` inside it
+//   work         scratch folder. It must be new, empty or one vprobe made: vprobe deletes `root`
+//                and `template` inside it, and keeps the folder. Without it vprobe makes a new
+//                folder in the temp folder, with a random part in its name so that nothing
+//                planted there is used (on Linux and macOS mode 700, or 755 when started as root
+//                so that `user` can reach it; on Windows the temp folder's permissions). It is
+//                removed when vprobe exits, a failed run included; a vprobe that is killed
+//                leaves it
 //   user         matrix as root: the account that owns the tree
 //   places, named, shapes, kinds, accounts  matrix. Write a place or name as `label: path`, the
 //                label being its kind of place (private, shared, ...): rows are grouped by it.
@@ -125,6 +130,7 @@
 module main
 
 import os
+import crypto.rand
 import json2
 import regex
 import time
@@ -345,11 +351,58 @@ fn load_spec(path string) Spec {
 	return spec
 }
 
+// own_work_path keeps the default work folder this run made, so that every exit can remove it:
+// `fail` exits from many places, and V's `exit` runs no `defer`. A static variable stands in for
+// a global, which would need `-enable-globals`; V allows one only in an unsafe function.
+@[unsafe]
+fn own_work_path(set string) string {
+	mut static path := ''
+	if set != '' {
+		path = set
+	}
+	return path
+}
+
+// remove_own_work removes the default work folder, if this run made one; `at_exit` runs it on
+// every exit and on the return from main. It moves to the folder's parent first: Windows cannot
+// remove the current folder. A folder the spec names is never recorded, so it is never removed.
+fn remove_own_work() {
+	path := unsafe { own_work_path('') }
+	if path == '' {
+		return
+	}
+	os.chdir(os.dir(path)) or {}
+	remove_tree(path)
+}
+
+// make_default_work makes the work folder for a spec that names none: a new folder in the temp
+// folder named `<prefix>_<pid>_<16 hex>`, mode 700 where the system has modes (Windows ignores
+// it). `os.mkdir` fails when anything is already at that path, so nothing planted there is
+// used. `remove_own_work` removes it when vprobe exits. The temp folder is resolved once, as the
+// system reads it: one absolute path with no link and no `..`, so moving into the folder,
+// removing it and `{work}` in a command all name the same folder. A relative temp folder (vprobe
+// works inside its folder) and `..` after a link (a shell's `cd` removes it by text) did not.
+fn make_default_work(prefix string) string {
+	// bytes, not read: read's signature changed between V releases, bytes did not.
+	suffix := rand.bytes(8) or {
+		fail('cannot read random bytes: ${err}')
+		return ''
+	}
+	path := os.join_path(os.real_path(os.temp_dir()), '${prefix}_${os.getpid()}_${suffix.hex()}')
+	os.mkdir(path, mode: 0o700) or { fail('cannot make the work folder ${path}: ${err}') }
+	unsafe { own_work_path(path) }
+	at_exit(remove_own_work) or {
+		remove_tree(path)
+		fail('cannot arrange to remove the work folder at exit: ${err}')
+	}
+	return path
+}
+
 fn new_ctx(spec Spec) Ctx {
 	work := if spec.work != '' {
 		spec.work
 	} else {
-		os.join_path(os.temp_dir(), 'vprobe_${os.getpid()}')
+		make_default_work('vprobe')
 	}
 	// vprobe deletes `root` and `template` inside the work folder, so it only uses a folder that
 	// is new, empty, or carries its own marker.
@@ -3170,7 +3223,7 @@ fn cmd_asm(spec Spec) int {
 	work := if spec.work != '' {
 		spec.work
 	} else {
-		os.join_path(os.temp_dir(), 'vprobe_asm_${os.getpid()}')
+		make_default_work('vprobe_asm')
 	}
 	os.mkdir_all(work) or { fail('cannot make ${work}: ${err}') }
 	mut rows := []AsmRow{}

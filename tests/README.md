@@ -55,7 +55,9 @@ the sibling files `--at` extracts, a missing named target and one no detector ta
 the base when there is no `master` (`main`, then `origin/HEAD`), a cold cache that
 builds only the needed detector, builds planted in the shared temp folder (never
 run), the private per-run folder (mode 0700, random name), and its removal after
-every run, flagged and failed ones included.
+every run, flagged and failed ones included. Since rev 129 it also runs `--at` with a
+relative temp folder and with one spelled with `..` after a link, and runs a copy of
+review-tools and then the checkout with one build cache: each must use its own detectors.
 `FIXTURE_SMOKE_ONLY=1 bash tests/run_fixtures.sh` runs everything but the
 per-detector cases, for a mutation run over `run_detectors.v`.
 
@@ -79,8 +81,11 @@ known_good that is merely "unrelated code" proves nothing about the fix path.
 commands on inputs whose right answer is known: a mutant a helper kills, a flaky test, a test that
 fails whenever its source file is edited, a hang, a crash, the mutants generated for the functions
 that changed since a base file, a held-open window, a line one copy prints about a tree that is
-not there, a per-caller gap, a check one sibling site has and the other lacks. The kinds that need
-root (another account's file, folder or link) are not run by it.
+not there, a per-caller gap, a check one sibling site has and the other lacks. Since rev 129 it
+also checks the work folder vprobe makes when a spec names none, for `matrix` and `asm`: mode
+700, a random part in its name, a folder or link planted at the old name `vprobe_<pid>` left
+alone, and the folder gone after a run and after a failed one. The kinds that need root (another
+account's file, folder or link) are not run by it.
 Every case states the line the probe must print and its exit code, so a probe that gives the wrong
 verdict, or ends "nothing flagged" for something it did not run, fails. It needs a POSIX shell
 (Linux, WSL or macOS). It is separate from `run_fixtures.sh`, which covers the detectors only.
