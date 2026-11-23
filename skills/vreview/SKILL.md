@@ -4225,6 +4225,14 @@ the review.
    enforcement). A new rule is a rev: page subtitle, changelog entry, angle card
    and panel, in the same commit. Recipe: `${CLAUDE_PLUGIN_ROOT}/CONTRIBUTING.md`;
    check with `bash "${CLAUDE_PLUGIN_ROOT}"/hooks/check_reference.sh <checkout> <rev>`.
+7. **A draft rule that a blind rerun does not apply is not kept (rev 130).** When a blind
+   `/vreview` of the state that missed a defect, run with a draft rule or detector in place, still
+   does not find it, do not add more rule text: drop the draft, log the row with "None new", and
+   put the hard rule 3 design question to the user (a change that removes the class). Missed on
+   vlang/v#31407 (adversarial round 139, 2026-11-22): a draft advice ledger was retested blind
+   twice, the second time with a detector that listed every fixture printing each fix text, and
+   neither review applied the advice to a fixture; removing the advice from the diagnostic ended
+   the class.
 
 ---
 
