@@ -71,7 +71,9 @@
 //   setup        run in every fresh root before the object is placed; must be deterministic
 //   work         scratch folder. It must be new, empty or one vprobe made: vprobe deletes `root`
 //                and `template` inside it, and keeps the folder. Without it vprobe makes a new
-//                folder in the temp folder, with a random part in its name so that nothing
+//                folder in the temp folder (`TMPDIR` when set, on macOS too, where V's own
+//                temp folder is always /tmp; a `TMPDIR` that names no folder stops vprobe with
+//                exit 2), with a random part in its name so that nothing
 //                planted there is used (on Linux and macOS mode 700, or 755 when started as root
 //                so that `user` can reach it; on Windows the temp folder's permissions). It is
 //                removed when vprobe exits, a failed run included; a vprobe that is killed
@@ -375,6 +377,20 @@ fn remove_own_work() {
 	remove_tree(path)
 }
 
+// temp_parent returns the temp folder the default work folder is made in: `TMPDIR` when it is set
+// and not empty, else `os.temp_dir()`. On Linux and Windows that is what `os.temp_dir()` returns
+// already; on macOS `os.temp_dir()` is always /tmp, shared by every account, while the system
+// sets `TMPDIR` to a folder of this account's own.
+fn temp_parent() string {
+	$if macos {
+		t := os.getenv('TMPDIR')
+		if t != '' {
+			return t
+		}
+	}
+	return os.temp_dir()
+}
+
 // make_default_work makes the work folder for a spec that names none: a new folder in the temp
 // folder named `<prefix>_<pid>_<16 hex>`, mode 700 where the system has modes (Windows ignores
 // it). `os.mkdir` fails when anything is already at that path, so nothing planted there is
@@ -388,7 +404,7 @@ fn make_default_work(prefix string) string {
 		fail('cannot read random bytes: ${err}')
 		return ''
 	}
-	path := os.join_path(os.real_path(os.temp_dir()), '${prefix}_${os.getpid()}_${suffix.hex()}')
+	path := os.join_path(os.real_path(temp_parent()), '${prefix}_${os.getpid()}_${suffix.hex()}')
 	os.mkdir(path, mode: 0o700) or { fail('cannot make the work folder ${path}: ${err}') }
 	unsafe { own_work_path(path) }
 	at_exit(remove_own_work) or {

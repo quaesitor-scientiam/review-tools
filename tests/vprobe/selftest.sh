@@ -388,6 +388,13 @@ echo '{"base": "'$x'/base.sh", "head": "'$x'/base.sh", "cmd": "cd {work} && pwd 
 TMPDIR="$x/dd/top/lnk/.." "$P" matrix "$x/dotdot.json" > "$x/dotdot.out" 2>&1
 expect_exit default-work-dotdot 0 "$x/dotdot.out" $?
 has default-work-dotdot "$x/seen_dd" "^$xr/dd/real/vprobe_[0-9]+_[0-9a-f]{16}\$"
+# An empty TMPDIR is the system's temp folder, /tmp, as before: on macOS vprobe reads TMPDIR
+# itself, and an empty one must not become the folder vprobe starts in.
+mkdir -p "$x/emptyrun"
+sed 's#seen_dd#seen_empty#' "$x/dotdot.json" > "$x/empty.json"
+(cd "$x/emptyrun" && TMPDIR= "$P" matrix "$x/empty.json" > "$x/empty.out" 2>&1)
+expect_exit default-work-empty 0 "$x/empty.out" $?
+has default-work-empty "$x/seen_empty" "^$(cd -P /tmp && pwd -P)/vprobe_[0-9]+_[0-9a-f]{16}\$"
 # A folder open to everyone, and a link to another folder, both planted at the old name.
 TMPDIR="$d" sh -c 'mkdir -m 777 "$TMPDIR/vprobe_$$" && exec "$0" matrix "$1"' "$P" "$x/default.json" > "$x/planted.out" 2>&1
 expect_exit planted-folder 0 "$x/planted.out" $?

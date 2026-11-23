@@ -361,6 +361,27 @@ runner_cases() {
     runner=(env "TMPDIR=$work/dd-$p/top/lnk/.." "XDG_CACHE_HOME=$work/cache-$p" "${saved[@]}")
     smoke $p/dotdot-temp-is-read-as-the-system-reads-it 0 "TMPREAL $(cd -P "$work" && pwd -P)/dd-$p/real/run_detectors_" \
         --at master --only lenient_parse vlib/x/parse.v
+    # A relative temp folder is the one below the folder the runner is started from, not below
+    # the repo root it moves to: one that is only in `sub` is used, one only at the root is not.
+    mkdir -p "$r/sub/insub-$p" "$r/atroot-$p"
+    runner=(env "TMPDIR=insub-$p" "XDG_CACHE_HOME=$work/cache-$p" sh -c 'cd sub && exec "$@"' sh "${saved[@]}")
+    smoke $p/relative-temp-is-below-the-start-folder 0 "TMPREAL $(cd -P "$r" && pwd -P)/sub/insub-$p/run_detectors_" \
+        --at master --only lenient_parse vlib/x/parse.v
+    runner=(env "TMPDIR=atroot-$p" "XDG_CACHE_HOME=$work/cache-$p" sh -c 'cd sub && exec "$@"' sh "${saved[@]}")
+    smoke $p/relative-temp-is-not-below-the-repo-root 2 'cannot create a private folder .*/sub/atroot-' \
+        --at master --only lenient_parse vlib/x/parse.v
+    # The same with `..` after a link: the link's target decides, not the text of the path.
+    mkdir -p "$r/sub/reldd-$p/real/inside" "$r/sub/reldd-$p/top"
+    ln -sfn ../real/inside "$r/sub/reldd-$p/top/lnk"
+    runner=(env "TMPDIR=reldd-$p/top/lnk/.." "XDG_CACHE_HOME=$work/cache-$p" sh -c 'cd sub && exec "$@"' sh "${saved[@]}")
+    smoke $p/relative-dotdot-temp-follows-the-link 0 "TMPREAL $(cd -P "$r" && pwd -P)/sub/reldd-$p/real/run_detectors_" \
+        --at master --only lenient_parse vlib/x/parse.v
+    rm -rf "$r/sub" "$r/atroot-$p"
+    # An empty TMPDIR is the system's temp folder, /tmp, as before: on macOS the runner reads
+    # TMPDIR itself, and an empty one must not become the folder it starts in.
+    runner=(env "TMPDIR=" "XDG_CACHE_HOME=$work/cache-$p" "${saved[@]}")
+    smoke $p/empty-temp-is-the-system-temp 0 "TMPREAL $(cd -P /tmp && pwd -P)/run_detectors_" \
+        --at master --only lenient_parse vlib/x/parse.v
     # Two copies of review-tools with the same runner text each run their own detectors: the
     # runner finds them beside the source it was built from, so run_detectors.sh must not
     # hand one copy's cached build to the other (rev 129). Only the sh entry point caches it.

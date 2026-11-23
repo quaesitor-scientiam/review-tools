@@ -2779,7 +2779,9 @@ wire-parsing code.
   run; started as a user it prints the rows it did not run, and those stay unverified.
   Give `work` a new or empty folder: the probe deletes `root` and `template` inside it and
   refuses a folder it did not make. Or leave `work` out: the probe then makes its own folder in
-  the temp folder, with a random part in its name (mode 700 on Linux and macOS, 755 when
+  the temp folder (`TMPDIR` when set, on macOS too, where V's `os.temp_dir()` is always
+  /tmp; a `TMPDIR` that names no folder stops the probe with exit 2, on macOS as on Linux),
+  with a random part in its name (mode 700 on Linux and macOS, 755 when
   started as root, for `user`), and removes it when it exits, a failed run included; a probe
   that is killed leaves it (rev 129). Until rev 129 that default was `<temp>/vprobe_<pid>`, a name
   another account could create first; the probe took such an empty folder, or a link to one,
