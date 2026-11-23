@@ -47,7 +47,10 @@ failure; whether two runs at once are excluded or tolerated; which platforms cou
 ## Lists, and where each came from
 <Callers and sibling functions: from graphify or `vprobe siblings`, with the command.
 Inputs, spellings, special names: from the system's documentation, with the link.
-A list from memory is labelled "from memory, incomplete".>
+What varies on its own: name each axis the change meets (kind of object, kind of place,
+position in the path, account, platform) and say which cells of their crossing will be
+run, as a small table or as "every X on every Y". A cell left out is named with its reason.
+A list that is not from the system says where it came from; rule 7 says what happens to it.>
 
 ## What could make this wrong
 <The two or three ways this design fails. For each: the test that would show it.>
@@ -73,6 +76,24 @@ A list from memory is labelled "from memory, incomplete".>
    for a third round.
 6. **The brief goes with the review.** `/vreview` and any outside reviewer are given the brief,
    so that "out of scope" and the user's decisions are not reported as defects again.
+7. **A list that is not from the system is rebuilt, or it is a decision.** A list labelled
+   "from memory", "from the skill" or "from an earlier pass" is rebuilt from the system's own
+   documentation before the brief is sent. When that cannot be done, it goes under "Decisions
+   that are yours" as a question that says what may be missing. A label alone settles nothing.
+8. **Axes are crossed, not listed side by side.** Naming the kinds of object in one place and
+   the kinds of place in another leaves their combinations untried. Each kind of object is
+   planned on each kind of place, and each special name in each position it can take (alone,
+   in a full path, as the root, as an entry). The brief stays one page: the crossing is a
+   sentence or a small table, and the rows themselves are run later.
+
+Rules 7 and 8 come from the first brief written with this skill (vlang branch
+`os-walk-windows-reuse-find-attrs`, 2026-11-22). It named SMB and the WSL share as places and
+"a file root, a missing root, a link root" as tests, and those roots were then tried on a local
+drive only: the adversarial round after it found a root that is a file symlink reported as a
+link on a share.
+It also said its 50 root shapes came "from the skill, not re-derived from Microsoft's
+documentation", was approved, and the same round found the device names (`CON`, `AUX`) given
+alone as a root, a position the list did not hold.
 
 ## After approval
 
