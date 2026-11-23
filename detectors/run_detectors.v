@@ -163,6 +163,8 @@ fn main() {
 	}
 
 	start_dir := os.getwd()
+	// Read before the move to the repo root: a relative TMPDIR is below the start folder.
+	temp := temp_parent()
 	c.repo_root = resolve_repo_root() or {
 		eprintln('run_detectors: ${err}')
 		exit(2)
@@ -202,7 +204,7 @@ fn main() {
 	}
 
 	// Temp dir, extraction.
-	c.tmp = make_private_dir(os.temp_dir()) or {
+	c.tmp = make_private_dir(temp) or {
 		eprintln('run_detectors: ${err}')
 		exit(2)
 	}
@@ -401,6 +403,29 @@ fn default_base_branch() string {
 		return remote
 	}
 	return ''
+}
+
+// temp_parent returns the temp folder the per-run folder is made in: `TMPDIR` when it is set
+// and not empty, else `os.temp_dir()`. On Linux and Windows that is what `os.temp_dir()` returns
+// already; on macOS `os.temp_dir()` is always /tmp, shared by every account, while the system
+// sets `TMPDIR` to a folder of this account's own. A `TMPDIR` that names no folder makes
+// `make_private_dir` fail, and the run stops with exit 2, on macOS as on Linux. A relative one
+// is joined to the current folder, except on Windows, where it is left as it is. Not with
+// `os.abs_path`: it removes a `..` by text, also one after a link.
+fn temp_parent() string {
+	mut t := ''
+	$if macos {
+		t = os.getenv('TMPDIR')
+	}
+	if t == '' {
+		t = os.temp_dir()
+	}
+	$if !windows {
+		if !os.is_abs_path(t) {
+			return os.join_path(os.getwd(), t)
+		}
+	}
+	return t
 }
 
 // make_private_dir makes a new folder under `parent` that only this user can use
