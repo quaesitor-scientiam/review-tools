@@ -2973,6 +2973,24 @@ Ask, for every file/function touched or newly introduced:
   fallback runs whenever the working folder cannot be opened, and opens the name with
   `O_NOFOLLOW`, which fails with `ELOOP` on every link: a wipe started from such a folder
   failed where base succeeded.
+- **Every system call of a look or a listing has a failure row, the ones after a successful
+  open included, and a loop's end is told from an error (rev 135).** The rev 110 bullet above
+  is not only for the first call. For each OS or library call the diff adds: what does the code
+  do when that call fails, and is that the same as what it does for a true negative answer? A
+  discarded return value that leaves a zeroed struct reads as "no directory, no link"; a loop
+  that runs `while the call succeeds` reads any error as "no more entries". Both turn "could
+  not tell" into a confident wrong answer and report nothing. Read the end condition's error
+  code and name the one value that means the end. Then take from the call's own documentation
+  where it is not supported (which file systems, which servers, which redirectors), and compare
+  with the call base used: where base's call works on such a place and the new one does not,
+  a silent skip there is a regression from base, and "every place on this machine supports
+  it" does not answer it. A failure no place here produces is forced (Angle J, rev 135), and
+  the fallback is another way to ask through what is already open, not a guess. Missed on
+  vlang/v#32768 (maintainer review, 2026-11-23, 2 findings, after four adversarial rounds):
+  `walk_list` ignored the result of `GetFileInformationByHandle`, so a folder that had opened
+  for listing was taken for a file when the look failed; and its listing loop ended on any
+  failure of `GetFileInformationByHandleEx`, so a server that does not support that listing
+  class gave an empty folder, where base lists it with `FindFirstFile`.
 - **Every best-effort failure in a safety mechanism is a disclosed limit or a finding (rev
   102).** For each `or { return }`, timeout or skipped write in code whose job is to protect
   something (a registration, a lock, a marker), state what it leaves unprotected when it fires,
@@ -3612,6 +3630,18 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   and a folder listed before the callback was called for it, each passed both test files.
   With a folder held open with delete access, or one that denies read-extended-attributes, the
   first two list nothing where base lists the folder.
+- **Each system call is made to fail once (rev 135).** One hand mutant per OS or library call
+  the diff adds, beside the constant mutants of rev 128: the call's result is replaced by its
+  failure value (and, for a call that fills a buffer, the buffer left as it was). Run the
+  tests and the base-vs-head rows with it. The mutant is not there to be killed by a test of
+  the happy path: it shows what the program does on a place where the call is not supported,
+  which no fixture on this machine may be able to build. Write the outcome beside it: the same
+  report as base, a visible failure, or a silent difference. A silent difference is a finding.
+  A fallback written for it gets a seam or a mutant that takes it, and a test that names what
+  the fallback reported. Missed on vlang/v#32768 (maintainer review, 2026-11-23): the mutants
+  of four rounds changed the constants and the branches of `walk_list`, none made
+  `GetFileInformationByHandle` or the first listing call fail, and with either failing the
+  walk reports a readable tree as empty.
 - **A changed predicate is tested through every caller, a second run included (rev 107).** When
   a fix changes what a predicate accepts (what marks a root, which names count as ours), grep
   every caller of the predicate and of any function that copies its logic, and give each one a
