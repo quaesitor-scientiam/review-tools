@@ -113,3 +113,5 @@ The first commit is a verbatim copy of the canonical files as of 2026-10-18:
 Later commits (in order): fixture suite (`tests/`), Claude Code plugin packaging
 (`.claude-plugin/`), retirement of `sync_skills.sh`, runner-owns-git rewrite of
 `run_detectors.sh`, and the port of detectors to V (`detectors/*.v`).
+
+CI test line.
