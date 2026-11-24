@@ -63,6 +63,16 @@ launched without a look, and two of its three confirmed findings were that the c
 review was not there. The agents read it from the stash; every run of the walk in that
 round measured base.
 
+**Name the graph's folder for V code (rev 136).** An agent's graphify call without a `folder` need
+not answer from the tree under review. In `CONTEXT`, give the full path of the tree under review
+and, where it is checked out, of the base, name the graphify server that covers them, and say:
+load its tools with ToolSearch, pass the tree's path as `folder` on every call, and check that the
+answer's first line names that tree. On "call again", call once more. If the server has no graph
+of that folder, try another graphify server. On any other `folder:` error use Grep and Read in
+that tree, never a call without `folder`. In the main checkout, read changed files that aren't
+committed yet: the graph may not have them. Before launching, make one such call yourself. Added
+with graphify#182 to graphify#184 (2026-11-24).
+
 While reading, collect what agents will need and can't efficiently discover
 themselves: absolute file paths, the specific functions/lines in scope, any
 established convention or sibling pattern this change claims to follow (find
