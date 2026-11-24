@@ -1766,14 +1766,25 @@ fn block_start(line string, from int) int {
 	return line.len
 }
 
+// Group is an open bracket of a line: the bracket, where each of its comma-separated parts starts,
+// and the `&&` and `||` of its own level.
+struct Group {
+	open u8
+mut:
+	starts []int
+	ops    []int
+	end    int
+}
+
 // group_drops returns the clause drops inside every group that `line[from..to]` opens and closes, an
-// outer group's before those of a group in it.
+// outer group's before those of a group in it. A comma ends a clause, and the text in braces (the
+// body of a function literal, an `or` block, a struct literal) is left whole, except for the groups
+// in it.
 fn group_drops(line string, from int, to int) []string {
 	mut drops := []string{}
 	mut quote := u8(0)
-	mut opened := []int{}
-	mut ops := [][]int{}
-	mut groups := [][]int{}
+	mut opened := []Group{}
+	mut groups := []Group{}
 	for i := from; i < to; i++ {
 		ch := line[i]
 		if quote != 0 {
@@ -1784,28 +1795,69 @@ fn group_drops(line string, from int, to int) []string {
 		}
 		if ch in [`'`, `"`, `\``] {
 			quote = ch
-		} else if ch in [`(`, `[`] {
-			opened << i
-			ops << []int{}
-		} else if ch in [`)`, `]`] && opened.len > 0 {
-			mut group := [opened.pop(), i]
-			group << ops.pop()
-			groups << group
-		} else if opened.len > 0 && i + 4 <= to && line[i..i + 4] in [' && ', ' || '] {
-			ops[ops.len - 1] << i
+		} else if ch in [`(`, `[`, `{`] {
+			opened << Group{
+				open:   ch
+				starts: [i + 1]
+			}
+		} else if ch in [`)`, `]`, `}`] && opened.len > 0 {
+			mut group := opened.pop()
+			group.end = i
+			if group.open != `{` {
+				groups << group
+			}
+		} else if opened.len > 0 {
+			top := opened.len - 1
+			if ch == `,` {
+				opened[top].starts << i + 1
+			} else if ch == `|` && line[opened[top].starts.last()..i].trim_space() == '' {
+				// The parameters of a lambda, `|a, b|`, come before its condition.
+				i = line.index_after('|', i + 1) or { to }
+				opened[top].starts[opened[top].starts.len - 1] = i + 1
+			} else if i + 4 <= to && line[i..i + 4] in [' && ', ' || '] {
+				opened[top].ops << i
+			}
 		}
 	}
-	groups.sort(a[0] < b[0])
+	groups.sort(a.starts[0] < b.starts[0])
 	for group in groups {
-		at := group[2..].clone()
-		if at.len == 0 {
-			continue
+		for k, start in group.starts {
+			end := if k + 1 < group.starts.len { group.starts[k + 1] - 1 } else { group.end }
+			drops << part_drops(line, start, end, group.ops)
 		}
-		drops << line[group[0] + 1..at[0] + 4]
-		for k, op in at {
-			end := if k + 1 < at.len { at[k + 1] } else { group[1] }
-			drops << line[op..end]
+	}
+	return drops
+}
+
+// part_drops returns the clause drops of `line[from..to]`, one part of a group, at those of `ops`
+// that stand in its condition: not in the label of a named argument, nor after the condition of an
+// `if` or `match`.
+fn part_drops(line string, from int, to int, ops []int) []string {
+	mut start := from
+	mut end := to
+	for line[start] == ` ` {
+		start++
+	}
+	mut word := line[start..to].all_before(' ')
+	if word.ends_with(':') && start + word.len < to
+		&& word.trim_right(':').bytes().all(it.is_alnum() || it == `_`) {
+		start += word.len + 1
+		word = line[start..to].all_before(' ')
+	}
+	if word in ['if', 'match'] {
+		start += word.len + 1
+		block := block_start(line, start)
+		if block < to {
+			end = block
 		}
+	}
+	at := ops.filter(it >= start && it < end)
+	if at.len == 0 {
+		return []
+	}
+	mut drops := [line[start..at[0] + 4]]
+	for k, op in at {
+		drops << line[op..if k + 1 < at.len { at[k + 1] } else { end }]
 	}
 	return drops
 }
