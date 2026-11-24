@@ -280,3 +280,90 @@ fn test_generate_mutants_forces_each_guard_of_a_named_function_to_fire() {
 	assert always.map(it.find) == ['if in_flight {', 'if c.n > 0 && c.open {']
 	assert always.all(it.replace == 'if true {')
 }
+
+fn test_clause_drops_reaches_a_group_inside_a_clause() {
+	assert clause_drops('	return a && b') == ['a && ', ' && b']
+	// Each clause of a group, as well as the group itself.
+	assert clause_drops("	return c && (d || (x['a'] && x['b']))") == ['c && ',
+		" && (d || (x['a'] && x['b']))", 'd || ', " || (x['a'] && x['b'])", "x['a'] && ", " && x['b']"]
+	assert clause_drops('	&& (!p.has || (q && r))') == ['&& (!p.has || (q && r))', '!p.has || ',
+		' || (q && r)', 'q && ', ' && r']
+	assert clause_drops('	if list.any(it.a && it.b) {') == ['it.a && ', ' && it.b']
+	// Two groups on one line.
+	assert clause_drops('	if (a && b) || (c && d) {') == ['(a && b) || ', ' || (c && d)', 'a && ',
+		' && b', 'c && ', ' && d']
+	// A group that the line does not close, and one inside a string, give nothing.
+	assert clause_drops('	if a && (b || c') == ['a && ', ' && (b || c']
+	assert clause_drops("	x := f('(a && b)')") == []
+}
+
+fn test_clause_drops_of_an_inline_if_stays_in_its_condition() {
+	assert clause_drops('	x := if a && b { c } else { d }') == ['a && ', ' && b']
+	assert clause_drops('	x = if a || f(b) { c && d } else { e }') == ['a || ', ' || f(b)']
+	assert clause_drops('	if a && b { return c }') == ['a && ', ' && b']
+	assert clause_drops('	x := a && b') == ['a && ', ' && b']
+	assert clause_drops("	x := if a == ' {' && b { c } else { d }") == [
+		"a == ' {' && ",
+		' && b',
+	]
+	assert clause_drops('	x := if a[f(1 {)] && b { c }') == ['a[f(1 {)] && ', ' && b']
+}
+
+fn test_clause_drops_lines_quotes_and_more_than_two_clauses() {
+	assert clause_drops('') == []
+	assert clause_drops('	// if a && b {') == []
+	assert clause_drops('	|| a || b {') == ['|| a ', ' || b']
+	assert clause_drops('	if a && b && c {') == ['a && ', ' && b', ' && c']
+	assert clause_drops('	return (a && b && c)') == ['a && ', ' && b', ' && c']
+	// An escaped quote does not end a string, at the top, in a group and before a block.
+	assert clause_drops("	return a == '\\' && b' && c") == ["a == '\\' && b' && ", ' && c']
+	assert clause_drops("	return f(a == '\\' && b' && c)") == ["a == '\\' && b' && ", ' && c']
+	assert clause_drops("	x := if a == '\\' {' && b { c }") == ["a == '\\' {' && ", ' && b']
+	assert clause_drops("	x := if a == 'x {' && b { c }") == ["a == 'x {' && ", ' && b']
+	// A brace with no space before it is a literal, and a line may end in a blank.
+	assert clause_drops('	x := if a == Foo{} && b { c }') == ['a == Foo{} && ', ' && b']
+	assert clause_drops('	x := if a && b ') == ['a && ', ' && b ']
+	// The braces of `unsafe` and `or` are not the block, with the block on the line or not.
+	assert clause_drops('	if a == unsafe { nil } && b') == [
+		'a == unsafe { nil } && ',
+		' && b',
+	]
+	assert clause_drops('	if a == unsafe { nil } && b { return }') == [
+		'a == unsafe { nil } && ',
+		' && b',
+	]
+	assert clause_drops('	x := if m[k] or { [1] } == c && b { d }') == [
+		'm[k] or { [1] } == c && ',
+		' && b',
+	]
+	assert clause_drops('	if !unsafe { f(g or { h }) } && b { c && d }') == [
+		'!unsafe { f(g or { h }) } && ',
+		' && b',
+	]
+	assert clause_drops('	if m or { if p { q } else { r } } && b { c && d }') == [
+		'm or { if p { q } else { r } } && ',
+		' && b',
+	]
+	assert clause_drops('	if Foo{} == m or { if p { q } else { r } } && b { c }') == [
+		'Foo{} == m or { if p { q } else { r } } && ',
+		' && b',
+	]
+	assert clause_drops('	if a || vor { b && c }') == ['a || ', ' || vor']
+	// A bracket that the line did not open.
+	assert clause_drops('	a) && b {') == []
+}
+
+fn test_guard_with_clauses_in_a_group_only_keeps_its_never_fires_mutant() {
+	path := os.join_path(os.temp_dir(), 'vprobe_guard_${os.getpid()}.v')
+	os.write_file(path, 'fn f(x []Foo) bool {\n\tif x.any(it.a && it.b) {\n\t\treturn true\n\t}\n\tif g || h {\n\t\treturn true\n\t}\n\treturn false\n}\n')!
+	defer {
+		os.rm(path) or {}
+	}
+	found := generate_mutants(path, ['f']).map('${it.line} ${it.find} -> ${it.replace}')
+	assert '2 if x.any(it.a && it.b) { -> if false {' in found
+	assert '2 it.a &&  -> ' in found
+	// A guard with clauses of its own has a mutant per clause instead.
+	assert '5 if g || h { -> if false {' !in found
+	assert '5 g ||  -> ' in found
+	assert '5  || h -> ' in found
+}

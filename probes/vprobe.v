@@ -89,14 +89,14 @@
 //                is `find` with `{pause}` in front; `head` names the program `build` produces
 //   test, build, mutants [{file, line, find, replace, note}], fail_regex, control_may_fail   mutate
 //   source, functions   mutate: also generate the mutants of these functions of `source`, one per
-//                clause of each `&&`/`||` condition, one per early-return guard (it never
-//                fires), one per `if` guard of any body (it always fires), two per lone
-//                comparison that is stored or returned (always true, always false), and one per
-//                call of a local `fn name(x string) string` (the argument as it came), two
-//                per `for x in items {` loop (it sees only the first item, only the last), and
-//                one per statement that only releases a resource (a close, a free, an unlock),
-//                with that statement dropped, and one per statement that only stores a value in
-//                a field (`a.b = x`), with that statement dropped.
+//                clause of each `&&`/`||` condition and of each bracketed group in it, one per
+//                early-return guard (it never fires), one per `if` guard of any body (it always
+//                fires), two per lone comparison that is stored or returned (always true, always
+//                false), and one per call of a local `fn name(x string) string` (the argument as it
+//                came), two per `for x in items {` loop (it sees only the first item, only the
+//                last), and one per statement that only releases a resource (a close, a free, an
+//                unlock), with that statement dropped, and one per statement that only stores a
+//                value in a field (`a.b = x`), with that statement dropped.
 //                `--list` prints them unrun.
 //   changed_from mutate: the same file at the revision the last mutation run covered (the merge
 //                base for the first run). Every function whose text differs is added to
@@ -1653,11 +1653,19 @@ fn fn_name(header string) string {
 }
 
 // clause_drops returns, for a line whose condition joins clauses with `&&` or `||`, the texts
-// whose removal drops one clause each.
+// whose removal drops one clause each, those of a group in parentheses or brackets included.
 fn clause_drops(line string) []string {
+	mut drops, start, end := top_clause_drops(line)
+	drops << group_drops(line, start, end)
+	return drops
+}
+
+// top_clause_drops returns the drops of the clauses outside every group, and where the condition
+// starts and ends on the line.
+fn top_clause_drops(line string) ([]string, int, int) {
 	code := line.trim_space()
 	if code == '' || code.starts_with('//') {
-		return []
+		return []string{}, 0, 0
 	}
 	start := line.len - line.trim_left(' \t').len
 	lead := code.starts_with('&& ') || code.starts_with('|| ')
@@ -1675,11 +1683,17 @@ fn clause_drops(line string) []string {
 			} else if at := line.index(' = ') {
 				s = at + 3
 			}
+			if line[s..].starts_with('if ') {
+				s += 3
+			}
 		}
 	}
 	mut e := line.len
 	if code.ends_with(' {') {
 		e = line.trim_right(' \t').len - 2
+	} else if line[..s].ends_with('if ') {
+		// `x := if a && b { c } else { d }`: the condition ends at the block.
+		e = block_start(line, s)
 	}
 	mut ops := []int{}
 	mut depth := 0
@@ -1712,6 +1726,86 @@ fn clause_drops(line string) []string {
 	for k, at in ops {
 		end := if k + 1 < ops.len { ops[k + 1] } else { e }
 		drops << line[at..end]
+	}
+	return drops, s, e
+}
+
+// block_start returns where the first ` {` at or after `from` that opens the block of a condition
+// stands, outside strings and brackets, or the line's length. The braces of `unsafe` and `or` are
+// part of the condition.
+fn block_start(line string, from int) int {
+	mut depth := 0
+	mut braces := 0
+	mut quote := u8(0)
+	for i := from; i < line.len; i++ {
+		ch := line[i]
+		if quote != 0 {
+			if ch == quote && line[i - 1] != `\\` {
+				quote = 0
+			}
+			continue
+		}
+		if ch in [`'`, `"`, `\``] {
+			quote = ch
+		} else if ch in [`(`, `[`] {
+			depth++
+		} else if ch in [`)`, `]`] {
+			depth--
+		} else if ch == `{` {
+			word := line[from..i].trim_right(' ').fields()
+			last := if word.len > 0 { word.last().trim_left('!(') } else { '' }
+			if braces > 0 || last in ['unsafe', 'or'] {
+				braces++
+			} else if depth == 0 && line[i - 1] == ` ` {
+				return i - 1
+			}
+		} else if ch == `}` && braces > 0 {
+			braces--
+		}
+	}
+	return line.len
+}
+
+// group_drops returns the clause drops inside every group that `line[from..to]` opens and closes, an
+// outer group's before those of a group in it.
+fn group_drops(line string, from int, to int) []string {
+	mut drops := []string{}
+	mut quote := u8(0)
+	mut opened := []int{}
+	mut ops := [][]int{}
+	mut groups := [][]int{}
+	for i := from; i < to; i++ {
+		ch := line[i]
+		if quote != 0 {
+			if ch == quote && line[i - 1] != `\\` {
+				quote = 0
+			}
+			continue
+		}
+		if ch in [`'`, `"`, `\``] {
+			quote = ch
+		} else if ch in [`(`, `[`] {
+			opened << i
+			ops << []int{}
+		} else if ch in [`)`, `]`] && opened.len > 0 {
+			mut group := [opened.pop(), i]
+			group << ops.pop()
+			groups << group
+		} else if opened.len > 0 && i + 4 <= to && line[i..i + 4] in [' && ', ' || '] {
+			ops[ops.len - 1] << i
+		}
+	}
+	groups.sort(a[0] < b[0])
+	for group in groups {
+		at := group[2..].clone()
+		if at.len == 0 {
+			continue
+		}
+		drops << line[group[0] + 1..at[0] + 4]
+		for k, op in at {
+			end := if k + 1 < at.len { at[k + 1] } else { group[1] }
+			drops << line[op..end]
+		}
 	}
 	return drops
 }
@@ -1932,8 +2026,9 @@ fn generate_mutants(path string, names []string) []Mutant {
 		if current !in names {
 			continue
 		}
-		drops := clause_drops(line)
-		for find in drops {
+		// A guard whose clauses all stand in a group still needs the mutants of a whole guard.
+		drops, _, _ := top_clause_drops(line)
+		for find in clause_drops(line) {
 			out << Mutant{
 				file:    path
 				line:    i + 1
