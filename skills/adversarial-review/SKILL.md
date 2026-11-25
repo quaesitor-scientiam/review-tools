@@ -203,23 +203,30 @@ boundary — what is DELIBERATELY out of scope for this change (so agents
 don't flag a documented, deliberate future-phase gap as a bug).>
 `
 
+// What a finder notices and drops is otherwise lost: only its output comes back (rev 137).
+const SET_ASIDE = `Under set_aside list EVERY suspicion you had and did not report as a finding, one line each, with the reason you dropped it and whether you ran anything. "Rare", "cannot be tested here", "it would fail anyway", "not a regression" and "documented limit" are reasons to list it here, not to leave it out. An empty list means you had no such suspicion.`
+
 const LENSES = [
-  { key: 'correctness', prompt: `${CONTEXT}\nLens: ... Return up to 5 candidate findings with file, line, summary, and a concrete failure_scenario. If you find nothing wrong, say so explicitly — do not manufacture a finding.` },
+  { key: 'correctness', prompt: `${CONTEXT}\nLens: ... Return up to 5 candidate findings with file, line, summary, and a concrete failure_scenario. If you find nothing wrong, say so explicitly — do not manufacture a finding.\n${SET_ASIDE}` },
   // ... one per lens from Step 2
 ]
 
-const FINDINGS_SCHEMA = { type: 'object', properties: { findings: { type: 'array', items: { type: 'object', properties: { file: { type: 'string' }, line: { type: 'number' }, summary: { type: 'string' }, failure_scenario: { type: 'string' } }, required: ['file', 'summary', 'failure_scenario'] } } }, required: ['findings'] }
+const FINDINGS_SCHEMA = { type: 'object', properties: { findings: { type: 'array', items: { type: 'object', properties: { file: { type: 'string' }, line: { type: 'number' }, summary: { type: 'string' }, failure_scenario: { type: 'string' } }, required: ['file', 'summary', 'failure_scenario'] } }, set_aside: { type: 'array', items: { type: 'object', properties: { what: { type: 'string' }, why_dropped: { type: 'string' }, ran: { type: 'boolean' } }, required: ['what', 'why_dropped', 'ran'] } } }, required: ['findings', 'set_aside'] }
 const VERDICT_SCHEMA = { type: 'object', properties: { refuted: { type: 'boolean' }, reasoning: { type: 'string' } }, required: ['refuted', 'reasoning'] }
 
 phase('Find')
+const setAside = []
 const results = await pipeline(
   LENSES,
   lens => agent(lens.prompt, { label: `find:${lens.key}`, phase: 'Find', schema: FINDINGS_SCHEMA }),
-  (review, lens) => ((review && review.findings) || []).map(f => ({ ...f, lens: lens.key }))
+  (review, lens) => {
+    for (const s of (review && review.set_aside) || []) setAside.push({ ...s, lens: lens.key })
+    return ((review && review.findings) || []).map(f => ({ ...f, lens: lens.key }))
+  }
 )
 const candidates = results.flat().filter(Boolean)
-log(`${candidates.length} raw candidates from ${LENSES.length} finders`)
-if (candidates.length === 0) return { confirmed: [], note: 'No finders surfaced any candidates.' }
+log(`${candidates.length} raw candidates and ${setAside.length} set aside from ${LENSES.length} finders`)
+if (candidates.length === 0) return { confirmed: [], setAside, note: 'No finders surfaced any candidates.' }
 
 phase('Verify')
 const REFUTERS_PER_FINDING = 3 // bump to 5 for high-stakes/large diffs
@@ -242,7 +249,7 @@ const confirmed = done.filter(v => v.survives)
 // No vote at all means the refuters failed (for example a usage limit), not that it was refuted.
 const unverified = done.filter(v => v.votes.length === 0)
 log(`${confirmed.length}/${candidates.length} survived; ${unverified.length} never verified`)
-return { confirmed, unverified, totalCandidates: candidates.length }
+return { confirmed, unverified, setAside, totalCandidates: candidates.length }
 ```
 
 Launch it in the background (the default) unless the user is actively
@@ -269,6 +276,17 @@ route `confirmed` through it (rank most-severe first). Otherwise a plain
 summary in the response is enough — this skill doesn't mandate a specific
 output format beyond "confirmed findings only, clearly separated from
 refuted/unconfirmed ones."
+
+**What the finders set aside is run before the round counts (rev 137).** `setAside` holds the
+suspicions that no finder reported, with the reason each was dropped. They are not findings and
+are not reported as such. Go through all of them: drop one only where the reason was run (`ran` is
+the finder's word for it, so read what it ran) or is shown by a line you open now; run the others
+on base and on head yourself, or put them to the user. Each ends in the "Written doubts" artifact
+of the next `/vreview` pass (its hard rule 5). Missed on vlang/v#31848 (maintainer review,
+2026-11-25): two agents of round 8 (2026-11-14) had noticed that any lock error reads as "locked"
+and left it out of their output, one because "builds would fail on those filesystems anyway", one
+because it is "a rare case I can't easily test". The first reason is false, and a short
+`LD_PRELOAD` shim tests the case in minutes.
 
 **Sort the findings when the code approximates another tool** (`/vreview` hard rule 3).
 Each row says blocking or limit, and why. Blocking: a regression from base with a real
