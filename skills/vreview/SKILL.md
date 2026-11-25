@@ -3223,6 +3223,20 @@ changes:
   directory". An entry listed as a link and replaced by a real directory is treated the same
   way, and base entered it; a file `x.` beside a folder `x` differs from base with nothing
   changing during the walk.
+- **What the brief puts out of scope goes into the docs where a sentence could be read to
+  cover it (rev 138).** A design brief's "out of scope" list is read by the author and the
+  reviewer; the user of the function reads the doc comment. For each out-of-scope line, find
+  the doc sentence a reader would take to promise it ("a directory that was replaced by a link
+  is not entered"), and either narrow that sentence to what the code does or add the limit
+  beside it. Then run the excluded case on base and head and write down what happens. A
+  protection is named with its reach: which part of the path, which moment, whose change (the
+  callback's own, the entry it was just given included). Missed on vlang branch
+  `os-walk-linux-dtype` (adversarial round 1, 2026-11-25, 2 findings): the brief said a folder
+  above an entry that is replaced by a link is still followed, and the docs said a replaced
+  directory is not entered; a walk reported a file outside its tree, as base does. And the
+  docs said an entry replaced by a directory "before the walk reaches it" is not entered,
+  while the case that changed from base is the entry a `walk_with_context` callback has just
+  been given.
 - **A sentence about what the program does gets a row per platform branch (rev 119).** Where an
   `$if windows` (or any system) branch sits behind a behaviour, the program does two things. A
   docs sentence, help line or status text that states the behaviour ("will be moved aside on
@@ -3688,6 +3702,20 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   of four rounds changed the constants and the branches of `walk_list`, none made
   `GetFileInformationByHandle` or the first listing call fail, and with either failing the
   walk reports a readable tree as empty.
+- **A fallback for a place this machine lacks is forced at the library boundary, and every
+  test file runs under it (rev 138).** Where the diff keeps a slower path for a system that
+  does not give what the fast path reads (a listing with no entry kinds, a clock with no
+  monotonic source), a unit test that hands the function the fallback's input by a parameter
+  covers that function only. Also run the whole of every test file of the change with the
+  library call replaced so that the place looks like one without the feature (on Linux a
+  small shared object loaded with `LD_PRELOAD` that wraps `readdir` and clears the kind; on
+  other systems a build flag or a mutant of the one read). A test that passes on the fast
+  path and fails there has an expectation that holds for the fast path alone: its guard is
+  wider than its assertion (the "every target its guard admits" bullet above). Missed on vlang
+  branch `os-walk-linux-dtype` (adversarial round 1, 2026-11-25): two expectations of
+  `walk_links_test.v` were changed from Windows to Windows or Linux. On a Linux file system
+  whose listing says no kind the walk looks every entry up by name, as its own docs say, and
+  both tests fail there; the new test file of the same commit already allowed for that case.
 - **An expected value does not come from the function the code uses (rev 137).** For each new or
   changed test, list the calls in its expected values and the calls in the code under test. A call
   on both lists makes the test compare the code with itself. Give the test another source: the
@@ -3850,6 +3878,22 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   job's `-cc tcc -no-retry-compilation`. `exec_handles_windows_test.c.v` in the same folder
   says so in a comment and loads the function by name. Every local run passed through the
   fallback to gcc.
+- **Code that reads a C struct by field is built and run with every backend, and compared with
+  base (rev 138).** The C backend lets the C compiler lay a `C.` struct out from the system's
+  header. A backend that makes machine code itself (`-native`), or writes its own headers
+  (FastC), lays it out from the fields the V source declares, and those may be in another
+  order than the system's. So for every field of a `C.` struct that the diff reads or writes
+  (`ent.d_type`, `st.st_mode`), and every struct it passes to a C call: build a program that
+  reaches the line once per backend the project ships, with the base tree and with the head
+  tree, and compare the output with the C build. A sibling that already reads the same struct
+  does not settle it: the backend may know only the field the sibling reads. In vlang:
+  `v -native`, `v -b fastc`, and the default; a backend that fails to build the program on
+  base as well is named as not run. Missed on vlang branch `os-walk-linux-dtype` (adversarial
+  round 1, 2026-11-25): the new Linux walk reads `d_type` and `d_name` of `C.dirent`. V
+  declares that struct with macOS's field order, the native backend takes the offsets from the
+  declaration, and every reported name lost its first two bytes while no folder was entered;
+  base built the same way was right. The inline pass had run TCC, gcc, clang and the FastC
+  bootstrap test, and no `-native` build.
 - **The checks the project requires are run to the end in every round (rev 134).** Read the
   reviewed project's own guide (`AGENTS.md`, `CONTRIBUTING.md`) and its CI configuration, list
   the checks they require for the changed area, and run each one on the code the round ends
