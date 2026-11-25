@@ -280,3 +280,144 @@ fn test_generate_mutants_forces_each_guard_of_a_named_function_to_fire() {
 	assert always.map(it.find) == ['if in_flight {', 'if c.n > 0 && c.open {']
 	assert always.all(it.replace == 'if true {')
 }
+
+fn test_clause_drops_reaches_a_group_inside_a_clause() {
+	assert clause_drops('	return a && b') == ['a && ', ' && b']
+	// Each clause of a group, as well as the group itself.
+	assert clause_drops("	return c && (d || (x['a'] && x['b']))") == ['c && ',
+		" && (d || (x['a'] && x['b']))", 'd || ', " || (x['a'] && x['b'])", "x['a'] && ", " && x['b']"]
+	assert clause_drops('	&& (!p.has || (q && r))') == ['&& (!p.has || (q && r))', '!p.has || ',
+		' || (q && r)', 'q && ', ' && r']
+	assert clause_drops('	if list.any(it.a && it.b) {') == ['it.a && ', ' && it.b']
+	// Two groups on one line.
+	assert clause_drops('	if (a && b) || (c && d) {') == ['(a && b) || ', ' || (c && d)', 'a && ',
+		' && b', 'c && ', ' && d']
+	// A group that the line does not close, and one inside a string, give nothing.
+	assert clause_drops('	if a && (b || c') == ['a && ', ' && (b || c']
+	assert clause_drops("	x := f('(a && b)')") == []
+}
+
+fn test_clause_drops_of_an_inline_if_stays_in_its_condition() {
+	assert clause_drops('	x := if a && b { c } else { d }') == ['a && ', ' && b']
+	assert clause_drops('	x = if a || f(b) { c && d } else { e }') == ['a || ', ' || f(b)']
+	assert clause_drops('	if a && b { return c }') == ['a && ', ' && b']
+	assert clause_drops('	x := a && b') == ['a && ', ' && b']
+	assert clause_drops("	x := if a == ' {' && b { c } else { d }") == [
+		"a == ' {' && ",
+		' && b',
+	]
+	assert clause_drops('	x := if a[f(1 {)] && b { c }') == ['a[f(1 {)] && ', ' && b']
+}
+
+fn test_clause_drops_lines_quotes_and_more_than_two_clauses() {
+	assert clause_drops('') == []
+	assert clause_drops('	// if a && b {') == []
+	assert clause_drops('	|| a || b {') == ['|| a ', ' || b']
+	assert clause_drops('	if a && b && c {') == ['a && ', ' && b', ' && c']
+	assert clause_drops('	return (a && b && c)') == ['a && ', ' && b', ' && c']
+	// An escaped quote does not end a string, at the top, in a group and before a block.
+	assert clause_drops("	return a == '\\' && b' && c") == ["a == '\\' && b' && ", ' && c']
+	assert clause_drops("	return f(a == '\\' && b' && c)") == ["a == '\\' && b' && ", ' && c']
+	assert clause_drops("	x := if a == '\\' {' && b { c }") == ["a == '\\' {' && ", ' && b']
+	assert clause_drops("	x := if a == 'x {' && b { c }") == ["a == 'x {' && ", ' && b']
+	// A brace with no space before it is a literal, and a line may end in a blank.
+	assert clause_drops('	x := if a == Foo{} && b { c }') == ['a == Foo{} && ', ' && b']
+	assert clause_drops('	x := if a && b ') == ['a && ', ' && b ']
+	// The braces of `unsafe` and `or` are not the block, with the block on the line or not.
+	assert clause_drops('	if a == unsafe { nil } && b') == [
+		'a == unsafe { nil } && ',
+		' && b',
+	]
+	assert clause_drops('	if a == unsafe { nil } && b { return }') == [
+		'a == unsafe { nil } && ',
+		' && b',
+	]
+	assert clause_drops('	x := if m[k] or { [1] } == c && b { d }') == [
+		'm[k] or { [1] } == c && ',
+		' && b',
+	]
+	assert clause_drops('	if !unsafe { f(g or { h }) } && b { c && d }') == [
+		'!unsafe { f(g or { h }) } && ',
+		' && b',
+	]
+	assert clause_drops('	if m or { if p { q } else { r } } && b { c && d }') == [
+		'm or { if p { q } else { r } } && ',
+		' && b',
+	]
+	assert clause_drops('	if Foo{} == m or { if p { q } else { r } } && b { c }') == [
+		'Foo{} == m or { if p { q } else { r } } && ',
+		' && b',
+	]
+	assert clause_drops('	if a || vor { b && c }') == ['a || ', ' || vor']
+	// A bracket that the line did not open.
+	assert clause_drops('	a) && b {') == []
+}
+
+fn test_guard_with_clauses_in_a_group_only_keeps_its_never_fires_mutant() {
+	path := os.join_path(os.temp_dir(), 'vprobe_guard_${os.getpid()}.v')
+	os.write_file(path, 'fn f(x []Foo) bool {\n\tif x.any(it.a && it.b) {\n\t\treturn true\n\t}\n\tif g || h {\n\t\treturn true\n\t}\n\treturn false\n}\n')!
+	defer {
+		os.rm(path) or {}
+	}
+	found := generate_mutants(path, ['f']).map('${it.line} ${it.find} -> ${it.replace}')
+	assert '2 if x.any(it.a && it.b) { -> if false {' in found
+	assert '2 it.a &&  -> ' in found
+	// A guard with clauses of its own has a mutant per clause instead.
+	assert '5 if g || h { -> if false {' !in found
+	assert '5 g ||  -> ' in found
+	assert '5  || h -> ' in found
+}
+
+fn test_clause_drops_of_a_group_end_at_its_commas() {
+	// A comma after the clauses, before them, on both sides, and between two conditions.
+	assert clause_drops('	return true in [a && b, c]') == ['a && ', ' && b']
+	assert clause_drops('	return f(x, a && b)') == ['a && ', ' && b']
+	assert clause_drops('	return f(x, a && b && c, d)') == ['a && ', ' && b', ' && c']
+	assert clause_drops('	return both(a && b, c || d)') == ['a && ', ' && b', 'c || ', ' || d']
+	// A comma of an inner group or of a string ends no clause of the outer one.
+	assert clause_drops('	return (f(x, y) && b)') == ['f(x, y) && ', ' && b']
+	assert clause_drops("	return (a == 'x, y' && b)") == ["a == 'x, y' && ", ' && b']
+	assert clause_drops('	return f(g(x, a && b), c || d)') == ['c || ', ' || d', 'a && ', ' && b']
+	// The label of a named argument is no part of the clause.
+	assert clause_drops('	return f(x, ok: a && b, c: d)') == ['a && ', ' && b']
+	assert clause_drops("	return ('a: b' in c && d)") == ["'a: b' in c && ", ' && d']
+	assert clause_drops('	return ("a: b" in c && d)') == ['"a: b" in c && ', ' && d']
+	assert clause_drops('	return (`:`  in c && d)') == ['`:`  in c && ', ' && d']
+	assert clause_drops('	x := f(|a && b)') == []
+	assert clause_drops("	return (a.b(': c: ') || d)") == ["a.b(': c: ') || ", ' || d']
+	assert clause_drops('	return f(is_1: a && b)') == ['a && ', ' && b']
+	// A part that is one word, or that has no block after its `if`.
+	assert clause_drops("	x := f('a:', if, (a && b))") == ['a && ', ' && b']
+	assert clause_drops('	x := f(a:) && (c || d)') == ['f(a:) && ', ' && (c || d)', 'c || ',
+		' || d']
+	assert clause_drops('	x := f(g:, (if a && b), c)') == ['a && ', ' && b']
+	assert clause_drops('	return f(a == Kind.b && c)') == ['a == Kind.b && ', ' && c']
+}
+
+fn test_clause_drops_of_a_group_leave_braces_whole() {
+	// The body of a function literal is not part of the group's condition.
+	assert clause_drops('	if list.any(fn (x int) bool { return x && y }) && b {') == [
+		'list.any(fn (x int) bool { return x && y }) && ',
+		' && b',
+	]
+	assert clause_drops('	x := f(fn (x int) bool { return (x && y) })') == ['x && ', ' && y']
+	assert clause_drops('	x := f(m or { a, b && c }, d || e)') == ['d || ', ' || e']
+	assert clause_drops('	x := (a && m or { b || c })') == ['a && ', ' && m or { b || c }']
+	// The parameters of a lambda and the block of an `if` are no part of the clause.
+	assert clause_drops('	return list.any(|x| x && y)') == ['x && ', ' && y']
+	assert clause_drops('	return list.any(z, |x, w| x && w)') == ['x && ', ' && w']
+	assert clause_drops('	return f(|| x && y)') == ['x && ', ' && y']
+	assert clause_drops('	return f(a | b && c)') == ['a | b && ', ' && c']
+	assert clause_drops('	x := f(match a && b { c || d { e } else { g } })') == [
+		'a && ',
+		' && b',
+	]
+	assert clause_drops('	x := f(ok: if a && b { c } else { d })') == ['a && ', ' && b']
+	assert clause_drops('	x := f(if a { b } else { c && d }, (e && g))') == ['e && ', ' && g']
+	assert clause_drops('	x := f(if a && b { c && d } else if p && q { r } else { e }, g || h)') == [
+		'a && ',
+		' && b',
+		'g || ',
+		' || h',
+	]
+}
