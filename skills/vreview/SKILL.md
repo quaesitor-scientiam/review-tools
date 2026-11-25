@@ -195,7 +195,7 @@ memory, because memory does not sync.
      read every notes, state and artifact file that an earlier pass on the branch left (a pass
      saved half way included) and what each adversarial round returned as set aside, and find
      what was dropped and the reason given for it. This search lists most of them:
-     `grep -nEi "not a regression|possible limit|moot|anyway|rare|set (it |that |this )?aside|(can.t|cannot|could not|not) (easily )?(be )?(test|run|reproduc|check|verif)|unverified|(^|[.;] )low[.;]|only costs|by reading|harmless|benign" <files>`.
+     `grep -nEi "not a regression|possible limit|moot|anyway|rare|set (it |that |this )?aside|(can.{1,3}t|cannot|could not|not) (easily )?(be )?(test|run|reproduc|check|verif)|unverified|(^|[.;] )low[.;]|only costs|by reading|harmless|benign" <files>`.
      The reason is a claim like any other: "not a regression" is settled by a run of base, "it
      fails there anyway" by a run of the thing said to fail, "can't be tested" by trying to force
      it. A dropped candidate whose reason was never run goes back on the list, whoever dropped it.
