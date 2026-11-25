@@ -190,6 +190,21 @@ memory, because memory does not sync.
      contract, its sibling rows, and the enumeration of Angle A's "one spelling" bullet or
      Angle K, before the next pass. When the request can be read as "check that X works" or
      as "make X work", ask which, and state what the second one adds.
+   - **Doubts of earlier passes and of reviewing agents are rows too (rev 137).** The doubts of
+     this rule are the branch's, not the session's or the round's. Before a pass is reported,
+     read every notes, state and artifact file that an earlier pass on the branch left (a pass
+     saved half way included) and what each adversarial round returned as set aside, and find
+     what was dropped and the reason given for it. This search lists most of them:
+     `grep -nEi "not a regression|possible limit|moot|anyway|rare|set (it |that |this )?aside|(can.t|cannot|could not|not) (easily )?(be )?(test|run|reproduc|check|verif)|unverified|(^|[.;] )low[.;]|only costs|by reading|harmless|benign" <files>`.
+     The reason is a claim like any other: "not a regression" is settled by a run of base, "it
+     fails there anyway" by a run of the thing said to fail, "can't be tested" by trying to force
+     it. A dropped candidate whose reason was never run goes back on the list, whoever dropped it.
+     The artifact names the files read. Missed on vlang/v#31848 (maintainer review, 2026-11-25):
+     the notes of a pass on 2026-11-15 said "any v_filelock_lock failure (ENOLCK too) reads as
+     busy ... Builds on such a filesystem fail anyway. Not a regression; possible limit", which is
+     the finding. Nobody ran it or asked: base removes the entry, a warm cache takes no lock and
+     works, and a cold build does not fail but was still trying after 200 s. Round 11
+     settled "every doubt from this round's answers" and did not open that file.
 
    Why: on vlang branch `os-walk-windows-reuse-find-attrs` (adversarial round 1, 2026-11-20,
    12 of 12 confirmed, all unanimous) the inline passes had already written down most of what
@@ -587,10 +602,22 @@ does. Standard and Lite keep the per-angle cap and normal N/A discretion.
      steps": it compared what the paths produce, not what the new one drops.
    - **matched behavior** — what the new code correctly mirrors. This is
      positive evidence the comparison actually happened, not just a
-     negative-findings list.
+     negative-findings list. **Two functions that must give the same answer for
+     one input are run over the same inputs (rev 137)** (a path two programs
+     resolve, a key two programs compute), and the cell names that run. For a
+     path that a setting holds: the forms of Angle A's path list, each from a
+     current folder that is plain and from one that is a link, and each with a
+     `..` in it.
    - **intentional divergence** — a difference from the sibling that is
      deliberate and justified; state the reason inline (e.g. "sibling
-     pools the connection, this path is one-shot by design").
+     pools the connection, this path is one-shot by design"). **The reason is a
+     claim (rev 137):** name the run that shows it, and show "that cannot be
+     done here" by trying it. Missed on vlang/v#31848 (maintainer review,
+     2026-11-25): the row for `caller_path` said "both take Windows' reading"
+     and gave `os.real_path` as a divergence because there is "no C helper in a
+     tool". From a junction, `S:..\cache` is `project\cache` for Windows and the
+     wipe, and `elsewhere\cache` for `v up`; and a single-file program builds and
+     runs with `C.GetFullPathName`.
    - **unresolved divergence** — a difference with no stated justification.
      This is the actual finding column: every row with a non-empty entry
      here is a Phase 1 candidate, triaged in Phase 2 like anything else.
@@ -631,7 +658,7 @@ recall-driven failure mode this skill has repeatedly found unreliable.
 - [ ] Probe runs (hard rule 4, rev 107): <`vprobe` matrix / race / mutate: command, exit code, flagged rows, each row's disposition> (or "N/A — the diff has nothing a command can run", or "not run — reason, and the user's answer")
 - [ ] Probe inputs added this round (hard rule 4, rev 110): <per spec: the rows added for this round's new sentences, decisions and pairs of them; every setting's own path as a `named` row; the setting relations and process states run> (or "none — reason")
 - [ ] Sibling sites (Phase 0 step 7, rev 110): <`vprobe siblings` command, markers, each "NOT in" row with its answer; per function that takes a flag, each exit path and where the flag is honoured> (or "N/A — the diff adds no check at a site of a shared situation")
-- [ ] Written doubts (hard rule 5, rev 113): <each sentence of yours in this session that calls a case untested, a limit, "only costs X" or "not run": the command run for it this pass and its result on base and head, or the question asked> (or "none written")
+- [ ] Written doubts (hard rule 5, rev 113, rev 137): <each sentence of yours in this session, of an earlier pass on this branch or set aside by a reviewing agent that calls a case untested, a limit, "only costs X", "not run" or not worth following: the command run for it and its result on base and head, or the question asked; the notes and artifact files of earlier passes that were read> (or "none written"; or "first pass on the branch")
 - [ ] Model ledger (Angle K): <one row per function that models another tool: rounds with confirmed findings, added/removed clauses; two in a row means ask the allow-list question before fixing> (or "no model of another tool in this diff")
 - [ ] Accepted-vocabulary inventory (Angle K): <n entries, from which old-code lists> (or "no new or widened rejection in this diff")
 - [ ] Reference-grammar trace (Angle K, rev 101): <reference function and its full line range, one row per consuming branch with adjacency and nesting probe results, plus the caller's line range and a leftover row per token class (rev 104)> (or "no model of another tool's grammar in this diff")
@@ -2991,6 +3018,25 @@ Ask, for every file/function touched or newly introduced:
   for listing was taken for a file when the look failed; and its listing loop ended on any
   failure of `GetFileInformationByHandleEx`, so a server that does not support that listing
   class gave an empty folder, where base lists it with `FindFirstFile`.
+- **A state read from a failed call names the error codes that mean it (rev 137).** When the code
+  turns the failure of a call into a named outcome (busy, gone, absent, shut, unsupported), take
+  the list of the call's error codes from its own documentation, name the ones that mean that
+  outcome, and give every other one an outcome that fails the run and reports the code's own
+  text. This holds also where failing is the normal answer: a lock attempt, an exclusive create,
+  a removal of what may be gone. Read `errno` (`GetLastError`) before the next call, a `close`
+  included, can change it. The check is one run per code, not per call: force the call to fail
+  with each documented code (on Linux an `LD_PRELOAD` shim of the call, limited to the one object;
+  elsewhere a hand mutant that sets the code), and write the exit code, what is left and the
+  message beside it, on base and on head. Two codes of different meaning with one report are a
+  finding. The rev 135 mutant of Angle J cannot show this: it returns the value that a busy lock
+  returns too, and the tests of the free case kill it. So also run the code with only the right
+  codes read as that outcome: if every test still passes, no test tells the two apart. Missed on
+  vlang/v#31848 (maintainer review, 2026-11-25): `try_lock` reported every failure of
+  `fcntl(F_SETLK)` as "another process has locked", so for `EINTR`, `EIO`, `EINVAL`, `ENOLCK` and
+  `EOPNOTSUPP`, as for `EAGAIN` and `EACCES`, the wipe exits 0 and keeps an idle entry that base
+  removes. With the call always failing 35 of 214 tests fail; with only the two contention codes
+  read as busy all 214 pass. The rev 109 bullet above was written for this PR and names "a lock's
+  state"; no saved artifact of a later pass has a failure row for this function.
 - **Every best-effort failure in a safety mechanism is a disclosed limit or a finding (rev
   102).** For each `or { return }`, timeout or skipped write in code whose job is to protect
   something (a registration, a lock, a marker), state what it leaves unprotected when it fires,
@@ -3642,6 +3688,17 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   of four rounds changed the constants and the branches of `walk_list`, none made
   `GetFileInformationByHandle` or the first listing call fail, and with either failing the
   walk reports a readable tree as empty.
+- **An expected value does not come from the function the code uses (rev 137).** For each new or
+  changed test, list the calls in its expected values and the calls in the code under test. A call
+  on both lists makes the test compare the code with itself. Give the test another source: the
+  system's own answer (the function its documentation names), the object itself (the folder the
+  file ends up in), or a literal. Then run the test where the two sources differ; a case where
+  they agree does not show which of them the test holds. For a path that means a current folder
+  that is a link, beside the shapes of rev 113. Missed on vlang/v#31848 (maintainer review,
+  2026-11-25): `caller_path` found the folder current on a drive with `os.real_path`, and its test
+  expected `os.join_path(os.real_path(wd), name)`. From a junction both give the junction's
+  target and Windows gives the junction, so the test could not fail; its two hand mutants switched
+  off the two branches and left that call alone.
 - **A changed predicate is tested through every caller, a second run included (rev 107).** When
   a fix changes what a predicate accepts (what marks a root, which names count as ours), grep
   every caller of the predicate and of any function that copies its logic, and give each one a
@@ -4376,8 +4433,8 @@ Probe inputs added this round (hard rule 4, rev 110):
 Sibling sites (Phase 0 step 7, rev 110):
 <`vprobe siblings` command and markers — each "NOT in" row: not needed there (why, file:line) / finding; per function that takes a flag: exit path — where the flag is honoured> (or "N/A — the diff adds no check at a site of a shared situation")
 
-Written doubts (hard rule 5, rev 113):
-<your sentence — the command run for it this pass and its result on base and head, or the question asked> (or "none written")
+Written doubts (hard rule 5, rev 113, rev 137):
+<the sentence, whose it is (this session, an earlier pass, a reviewing agent) — the command run for it and its result on base and head, or the question asked> (or "none written"); then <the notes and artifact files of earlier passes that were read> (or "first pass on the branch")
 
 Model ledger (Angle K):
 <function — rounds with confirmed findings — clauses added/removed — allow-list question asked?> (or "no model of another tool in this diff")
