@@ -3415,6 +3415,21 @@ adds or changes:
   path, a path with a space. Missed on vlang branch `os-walk-windows-reuse-find-attrs`
   (adversarial round 1, 2026-11-20): a unit test built `\\?\` + `getwd()` + `\a\b` and failed
   when started from a drive root, with the code under test correct.
+  **A final `$else` admits every target nobody named (rev 141).** For a value that a `$if` chain
+  picks per system (a table of error numbers, a path, a size), list what each branch admits from
+  the project's own list of targets (in vlang `vlib/v/pref/os_targets.v`), not from the systems in
+  mind. Then generate the C of the test file for each target (`v -os <target> -o t.c x_test.v`) and
+  read the value each one gets, beside that target's own (its header, or the number the code
+  under test reads through `C.`). Simpler still: take a system's number in an expected value from
+  the target itself (`C.EAGAIN`), which the rev 137 bullet allows as the system's own answer.
+  Missed on vlang/v#31848 (maintainer review of `6ea1414d18`, 2026-11-26, P3): the errno tables
+  of the test went `$if windows`, `$else $if linux`, `$else` with the BSD and macOS numbers, so
+  Android and Termux, whose numbers are Linux's, expect `EDEADLK` (35) to read as a held lock;
+  Solaris, QNX, Haiku and Serenity get the same table. The rule above came from the same
+  reviewer's P3 on vlang/v#31799. Both review notes of the round checked the expected values
+  against rev 137 only and called literals the good answer; the brief's systems were "macOS/BSD,
+  no host", from memory; and the round's `-os` checks compiled `cmd/v` and `vup.v` for five
+  targets, which a wrong number passes.
 
 - **Compare base and head on variations, not only your own tests.** For a change
   to what a program's input yields (a resolver, extractor, generator or parser),
