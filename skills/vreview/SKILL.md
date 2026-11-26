@@ -77,6 +77,12 @@ memory, because memory does not sync.
    count. When one class has findings in two consecutive rounds, the next step is not a
    fix: ask the user whether a design change removes the class (a lock that covers the
    state, an allow-list of owners or shapes, a generated list), and name what it would cost.
+   **The ledger is an artifact (rev 144):** every pass writes it in its Artifacts block, one row
+   per round of the change so far, and a class in this row and the last is the question above,
+   asked before the fix. Missed on vlang/v#31848 (adversarial round 13, 2026-11-26): false
+   sentences, a reworded message whose twin kept the claim, and test gaps were each confirmed in
+   round 12; the inline pass after it fixed them one by one, found a false test comment of its
+   own and kept no ledger, and round 13 confirmed all three classes again.
    Angle K's model ledger is this rule's instance for code that imitates another tool; this
    one binds for every code, concurrency and untrusted folders included. Missed on
    vlang/v#31848 (adversarial rounds 3 to 5, 2026-11-11, 9, 9 and 11 confirmed): races on
@@ -3177,8 +3183,9 @@ changes:
 - **Every new comment that says what another tool does gets a probe (rev 101).** Run
   `detect_external_behavior_claims` (in the batch; it lists the comment lines the diff adds
   that name V, its parser or checker, the C backend, GCC, Clang, TCC or MSVC, or say the code
-  mirrors or matches something). Give each line a row in the comment ledger: the claim, and the
-  program that confirms it, run through every consumer the change names, not one. A claim
+  mirrors or matches something; since rev 144 also an operating system or its C library, and
+  every new line of a comment block that has such a line). Give each line a row in the comment
+  ledger: the claim, and the program that confirms it, run through every consumer the change names, not one. A claim
   checked through one consumer is unverified for the rest. Every row is also checked against
   the code the comment describes and against the other comments on the same rule: a sentence
   true of the other tool but narrower or wider than this code is a false claim about this code.
@@ -3189,6 +3196,26 @@ changes:
   Detectors row said `detect_struct_wrapped_resource_leak` reads the batch's base copy as its
   regex and finds nothing, as its header said; its code has ignored an existing file in that
   slot since the V port, and a batch run flags the known-bad file.
+  **A comment about the system is a claim about another tool (rev 144).** An operating system,
+  its C library and its calls are other tools: a comment that says what Windows,
+  `GetFullPathNameW`, glibc or "the system" does gets a row and a probe on that system, through
+  the call the code makes. A claim's subject can sit on another line of its block ("Windows
+  makes a path into another ...: it drops the dots and spaces at the end of each name"), so the
+  detector lists every new line of a comment block that names one. Missed on vlang/v#31848
+  (adversarial round 13, 2026-11-26): the doc comment of the new public `winpath.full_path` and
+  a comment beside it said `GetFullPathNameW` drops the dots and spaces at the end of each name;
+  it drops them from the last name only, and one dot from any other (`C:\r\mid \leaf` keeps its
+  space). The detector listed neither, and round 12 had found another false sentence in the
+  first one.
+  **A fix to one sentence is a search for its twins (rev 144).** When a fix changes what one
+  sentence, message or comment says (adds an exception, rewords an outcome), grep the docs, the
+  help text, the output messages and the comments for the phrase it changed and for the outcome
+  it qualifies (`the wipe fails`, `left as it is`), and give each hit a row checked against the
+  same case. Missed on vlang/v#31848 (adversarial round 13): round 12's fixes added "unless the
+  lock file alone keeps a folder V moved aside" to one docs sentence, and reworded one summary
+  text that said a lock file "was left as it is" after its mode was changed. The twin docs
+  sentence ("stays, and the wipe fails and names it", false when no entry of the tool is there)
+  and the twin text, for a lock file that cannot be opened, kept the old claim.
   On a rerun, every comment line the fix adds or edits gets a row too. The detector reads
   whole-line `//` comments only; a trailing comment after code needs a row by hand.
   **User docs get rows too (rev 111).** Pass each touched `.md` file with its base copy: the
@@ -3762,6 +3789,16 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   of four rounds changed the constants and the branches of `walk_list`, none made
   `GetFileInformationByHandle` or the first listing call fail, and with either failing the
   walk reports a readable tree as empty.
+- **A call that leaves links alone is swapped for one that follows them, and a list an output
+  prints is cut to its first item (rev 144).** Two more hand mutants. For each call a changed
+  function makes so as not to follow a link (`lstat`, `O_NOFOLLOW`, an `is_link` check): one
+  mutant that follows it (`os.lstat` to `os.stat`), with a fixture that puts a link to the very
+  object the code holds at that place. For each list a changed message or summary joins: one
+  mutant that prints its first item only, with a fixture that has two. Missed on vlang/v#31848
+  (adversarial round 13, 2026-11-26): `os.lstat` to `os.stat` in the POSIX `is_at`, and
+  `failed.join(', ')` to `failed[0]` in the wipe's summary, each passed all 220 tests with `v`
+  rebuilt from the broken tree; the round's hand mutants broke each changed condition and no
+  other line.
 - **A fallback for a place this machine lacks is forced at the library boundary, and every
   test file runs under it (rev 138).** Where the diff keeps a slower path for a system that
   does not give what the fast path reads (a listing with no entry kinds, a clock with no
