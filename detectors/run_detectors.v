@@ -63,6 +63,7 @@ const manifest = {
 	'detect_platform_gated_tests':                     '*_test.v'
 	'detect_look_then_recursive_remove':               '*.v'
 	'detect_partial_dedup_return':                     '*.v'
+	'detect_numeric_text_compare':                     '*.v'
 	'detect_error_scope':                              'h2_*.v'
 	'detect_hpack_decode_scope':                       'h2_*.v'
 	'detect_swallowed_write':                          'h2_*.v'

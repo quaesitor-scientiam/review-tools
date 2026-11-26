@@ -3548,6 +3548,16 @@ adds or changes:
     a negative immediate (`$-8`), a character literal, an expression (`8+8`), a symbol.
     A parser that reads fewer spellings than the tool reads the rest wrong, not
     nothing.
+    Run `detect_numeric_text_compare.v` (in the batch, rev 143): it lists every added line
+    that compares a string with a number written as text (`== '0'`, `in ['', '0', '0x0']`),
+    whatever the function is called. Each listed line gets one probe per spelling above of
+    the value it names, the width masks of that value included (all ones of a byte written as
+    255 or `0xff`, a shift count that masks to zero). Missed on vlang/v PR 31407 (adversarial
+    round of 2026-11-26, 5 of 5 confirmed): the rule that an instruction changing nothing is
+    not a write compared immediates and displacements with a few spellings, and the pass after
+    amendment 4 probed only the spellings in the docs' own examples, so a zero written `0b0` or
+    `00`, all ones written 255, the base-less `lea` of the GNU as NOP and a shift by 64 were
+    reported, while base accepted them.
   - **The size the instruction really moves**, for every place the model takes a size
     from an operand: a count operand (`shlq %cl, mem`), a scalar view of a vector
     register (`movsd`/`movq %xmm0, mem` move 8 bytes), an operand reference, and the
