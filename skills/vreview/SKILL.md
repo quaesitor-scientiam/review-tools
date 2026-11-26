@@ -3751,6 +3751,21 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   `walk_links_test.v` were changed from Windows to Windows or Linux. On a Linux file system
   whose listing says no kind the walk looks every entry up by name, as its own docs say, and
   both tests fail there; the new test file of the same commit already allowed for that case.
+- **What the system gives per item is forced per item: all, none, and one (rev 140).** Read
+  in the call's own documentation whether the value the fallback exists for is a property of
+  the place or of each item (`d_type` is per entry: a server may send the kind of some entries
+  of one directory and not of others). For a per-item value the forced runs of the bullet
+  above are at least four: every item has it, no item has it, one item lacks it, and an item
+  the code never uses lacks it (`.` in a listing). Run every test file of the change under
+  each. A test helper that sums the items up into one answer for the whole container ("this
+  file system says kinds") is a model of the system with fewer states than the system has:
+  each expectation is taken from the item it asserts about, and the helper counts only the
+  items the code under test uses. Missed on vlang/v#32926 (maintainer review of `b70f02a1a9`,
+  2026-11-25, P2): a helper added in the fix round returned false when any entry of a folder,
+  `.` included, had no kind, and the tests then expected no child to have one. With `readdir`
+  wrapped so that only `.` has no kind, or only one child, two tests fail while the walk is
+  right. The fix round had forced one state, no entry with a kind, and rev 138's wording
+  ("the place looks like one without the feature") has the same two states.
 - **An expected value does not come from the function the code uses (rev 137).** For each new or
   changed test, list the calls in its expected values and the calls in the code under test. A call
   on both lists makes the test compare the code with itself. Give the test another source: the
@@ -3947,6 +3962,29 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   declaration, and every reported name lost its first two bytes while no folder was entered;
   base built the same way was right. The inline pass had run TCC, gcc, clang and the FastC
   bootstrap test, and no `-native` build.
+- **A C constant handed to a system call is read out of the build for every target, and "not
+  built here" names the command that was tried (rev 140).** The C backend takes the value of
+  `C.O_DIRECTORY` from the system's header for the target. A backend that makes machine code
+  itself keeps its own table of such values, and a table can be right for one architecture
+  only: the open flags, `ioctl` numbers and some error numbers differ between amd64 and arm64
+  on the same system. So for every `C.` constant the diff passes to a system or library call:
+  list the backends and the target architectures the project ships for that system, and for
+  each pair build a program that reaches the call. Where the target cannot be run, it can
+  usually still be built (in vlang `v -b arm64 -os linux -o x.o file.v` on an amd64 machine):
+  disassemble the call site, read the value that is passed, and compare it with the kernel or
+  libc header of that target. Grep the repository for the constant's name first: a comment
+  beside another use may already say where it differs. A line of the record that says a
+  target was "not built here" or "cannot be checked here" is a claim like any other (hard
+  rule 5): it names the command that was tried and the error it gave, or it is not written.
+  A test of the change that is gated to one architecture is a row for every other
+  architecture, not a disposition. Missed on vlang/v#32926 (maintainer review of
+  `b70f02a1a9`, 2026-11-25, P1): the new Linux walk opens a directory with `C.O_DIRECTORY |
+  C.O_NOFOLLOW`. The native backend's table gives every Linux target the amd64 values, so an
+  arm64 build passes `O_DIRECT | O_LARGEFILE` in their place. The record said "not built:
+  arm64" and judged the target by the layout of one struct; the cross build takes seconds on
+  the machine the review ran on, and `vlib/builtin/linux_bare/bf.v` states the difference in
+  a comment. The rev 138 bullet above was written from the same branch the same day and
+  names struct fields and backends, not constants and targets.
 - **The checks the project requires are run to the end in every round (rev 134).** Read the
   reviewed project's own guide (`AGENTS.md`, `CONTRIBUTING.md`) and its CI configuration, list
   the checks they require for the changed area, and run each one on the code the round ends
