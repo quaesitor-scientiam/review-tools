@@ -44,6 +44,11 @@ memory, because memory does not sync.
    skill, of `/adversarial-review`, or of a standing rule (an artifact, a rerun,
    Phase R, a test) looks unnecessary or too costly, stop and ask the user before
    skipping it. Do not decide alone.
+   **The text that counts is the file (rev 139).** A copy of this skill or of
+   `/adversarial-review` that an earlier turn loaded can be older than the file, or cut short by
+   a context summary. Before a pass or a round, read the file on disk, or diff the copy's latest
+   rev against the page's subtitle. Missed on vlang/v#31848 (adversarial round 12, 2026-11-25): the
+   round ran from a copy loaded before rev 137, so its findings schema had no `set_aside`.
 3. **Review loop order.** `/vreview` → fix → rerun `/vreview` after EVERY fix round
    until a pass has no confirmed findings → only then `/adversarial-review` → fix →
    back to `/vreview`. Each adversarial round runs only on the user's explicit yes for
@@ -1168,6 +1173,13 @@ then find where the new code re-establishes it. If you can't, that's a candidate
   base-vs-head row. Missed on vlang/v#31848 (adversarial round 1, 2026-11-08, 4 findings):
   moved-aside folders were never removed again, a failing nested root stopped the rest of the
   folder from being cleared, and `--verbose` stopped listing what was cleared around a root.
+- **A name the diff removes is searched for in the whole tree (rev 139).** For each function,
+  type, constant, option or file that the diff deletes or renames, run `git grep -nw <name>` on
+  the tree, comments, docs and other file types included, and give each hit an answer. The
+  compiler finds the calls that are left, never the comments. Missed on vlang/v#31848
+  (adversarial round 12, 2026-11-25): `tool_cache_full_path` was deleted, every other mention of it
+  was changed, and the comment of `tool_cache_wipe_absolute` in another file still sends the reader
+  to it.
 
 ### Angle C — Cross-file caller/callee trace
 For each changed function, grep for its callers. Does the change break a
@@ -1187,6 +1199,20 @@ Missed on vlang/v#31848 (adversarial round 9, 2026-11-20): `v up` made VCACHE, V
 VTOOLS_CACHE_DIR and VTMP absolute with `os.abs_path` before it ran `v wipe-cache`, so the
 wipe's new handling of `..` and of a nameless working folder never ran on that route, and a
 relative setting from a removed folder became `/<setting>` and was wiped.
+
+**A function that can newly fail has a row per handler (rev 139).** When a function the diff
+changes returns an error where it used to return a value (an empty list, `false`), list its
+callers, and for each `or { ... }`, default and retry there write what the program reports and
+leaves when exactly that call fails. A handler written for the old failures now answers for the
+new one too, and may turn it back into what the change is meant to end. Force the failure at each
+call, and on each kind of place that takes another way through the callers (a folder that stays
+and one that goes, a first and a second listing), on base and on head. Making the first n calls
+fail in one kind of place does not reach a call that only another kind makes. Missed on
+vlang/v#31848 (adversarial round 12, 2026-11-25): `names()` was made to fail on a `readdir` error,
+and `dir.names() or { [''] }`, just before the removal of a moved-aside folder, reads that as "not
+empty, so it stays": exit 0, "was wiped", the folder is left, and base removes it. The inline pass
+had made each of the first eight `readdir` calls fail, in the configured tool cache folder only,
+which stays after a wipe and is not listed a second time.
 
 **A renamed EMITTED symbol has "callers" too: every place the generator
 spells that name, not only the V callers of the function you changed.** When
@@ -3096,6 +3122,15 @@ changes:
   4 of `/review-respond`) only fires on BEHAVIORAL changes, so a doc-only
   clarification slips past it with no test to catch the resulting
   inconsistency.
+- **Each new sentence is held against each new test and each place (rev 139).** Put every
+  sentence the round adds to the docs, the help and the messages beside the tests the round adds,
+  and look for a test whose expected result the sentence denies. A sentence with no exception in
+  it speaks for every kind of place and state the program tells apart: run it on each. A message
+  that says what the program left alone is compared with what it did before printing it. Missed on
+  vlang/v#31848 (adversarial round 12, 2026-11-25): the docs said "If no entry of the tool is
+  there, it only names the tool", and `test_a_moved_aside_folder_stays_while_a_lock_in_it_is_refused`,
+  written the same day, has no entry there and expects the wipe to fail; and a summary said of a
+  lock file that it "was left as it is" after the wipe had set its mode to 0600.
 - **A claim that something doesn't exist is a search result: search for the
   concept.** Before writing "X has none" in a comment or doc, grep the concept
   and read the hits, rather than one guessed name. Missed on graphify#161:
@@ -3727,6 +3762,24 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   expected `os.join_path(os.real_path(wd), name)`. From a junction both give the junction's
   target and Windows gives the junction, so the test could not fail; its two hand mutants switched
   off the two branches and left that call alone.
+- **A test hook stands in for a call, not for the code after it (rev 139).** Where a test makes a
+  call "fail" through a hook, the lines between the real call and what the hook returns (reading
+  the error code, the close, the choice of outcome) run in no test that uses the hook. List those
+  lines and break each at its own place, not in a helper that the hook calls too, and not only with
+  a value that another test shows. A line whose breakage no test sees gets a test that makes the
+  real call fail (an `LD_PRELOAD` library the test builds, a place where the call fails), or is put
+  to the user. Missed on vlang/v#31848 (adversarial round 12, 2026-11-25): the hook `lock_error`
+  returns `tool_cache_refused_lock(code)`. With `EAGAIN` in place of the code that `try_lock` reads
+  after `fcntl`, the defect the maintainer reported is back and all 217 tests pass. The mutants of
+  the inline pass changed the helper, or set that code to 0, which the test with a real holder sees.
+- **A system's message in an expected value is asked of the system (rev 139).** The text of a
+  system error differs between C libraries (`EIO` is "Input/output error" in glibc and "I/O error"
+  in musl), systems and languages. Take it from the function that gives it for the code the test
+  expects (`os.posix_get_error_msg`), or compare the code. The rev 137 bullet above allows that: what
+  is tested is which code is reported, not its text. And run each new test, not only build it
+  (rev 115), with each C library and flag set of the project's CI that this machine has. Missed on
+  vlang/v#31848 (adversarial round 12, 2026-11-25): a new test expects "Input/output error", and with
+  `VFLAGS='-cc musl-gcc -gc none'`, as in the CI job `tools-docker-ubuntu-musl`, it fails.
 - **A changed predicate is tested through every caller, a second run included (rev 107).** When
   a fix changes what a predicate accepts (what marks a root, which names count as ours), grep
   every caller of the predicate and of any function that copies its logic, and give each one a
@@ -3923,6 +3976,14 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   When it was run, 54 of its failing files failed on plain master on that machine too (some need
   `sqlite3.h` or X11, which it lacks), and the first comparison, by exit code, had to be redone
   by failing test, assert and message.
+  **In vlang, for a change in `cmd/tools` (rev 139)**, run `v -silent -N -W -check build-tools` on
+  Linux and on Windows, the step of `tools_ci.yml`: 22 to 26 s here, and it checks every tool.
+  `-os macos` and the like check one file for a system this machine lacks. A module that one
+  system's `$if` branch alone uses is an unused import on the others: a plain build prints a
+  warning and goes on, `-W` refuses it. Missed on vlang/v#31848 (adversarial round 12, 2026-11-25):
+  `cmd/tools/vup.v` imports `v.util.winpath` and uses it under `$if windows`; the step passes on
+  master and on Windows, and fails on Linux. The inline pass had built `cmd/v`, and not the tools,
+  in 24 modes, `-W` among them.
 - **Equivalent is judged at the changed function's own result (rev 115).** A survivor is
   equivalent only when the mutated function returns and stores the same things as before.
   When another function makes up for the difference later (a second look before use), the

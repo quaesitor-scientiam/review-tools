@@ -43,6 +43,13 @@ skill was a standing opt-in; the user withdrew it because of cost.
 
 ## Step 1 — Determine scope and gather grounding context yourself
 
+**Work from this file on disk (rev 139).** When the skill is in the conversation from an earlier
+turn, read the file again before writing the script: the copy can be older than the rules or cut
+short. Missed on vlang/v#31848 (round 12, 2026-11-25): the script was written from a copy loaded
+before rev 137 and asked no finder for `set_aside`. What the finders had dropped was then taken
+from their transcripts with the search of `/vreview` hard rule 5: two suspicions that nobody had
+run.
+
 Before writing a single agent prompt, read the actual diff/files yourself —
 agents work from what you hand them, not from independently rediscovering
 context you already have:
