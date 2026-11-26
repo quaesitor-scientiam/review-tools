@@ -3781,6 +3781,32 @@ finding`. State "N/A — reason" for a diff that changes no program's output.
   wrapped so that only `.` has no kind, or only one child, two tests fail while the walk is
   right. The fix round had forced one state, no entry with a kind, and rev 138's wording
   ("the place looks like one without the feature") has the same two states.
+- **A state forced by hand in the review is not a test in the tree (rev 142).** A run under a
+  wrapper, a mount or an environment that the review sets up from outside shows the code is
+  right today; it guards nothing tomorrow. For each state the two bullets above force, name
+  the lines that only that state reaches, and for each line one of two things: the test in the
+  tree that arranges the state itself (a seam the test can call, a wrapper the test builds, a
+  fixture), or a sentence in the PR's test plan that the line is covered by hand runs only.
+  Then break the line that carries the system's value into the code, so that the rare value
+  becomes the common one, and run the tests as the tree runs them, with no wrapper: a
+  survivor is the gap. Missed on vlang/v#32926 (adversarial round 2, 2026-11-26): with
+  `typ: ent.d_type` changed to turn kind 0 into "file", every walk test passes on ext4 and
+  tmpfs, where only a walk's root has no kind, and the walk then skips whole directories on a
+  listing without kinds. The same tests fail under the review's `LD_PRELOAD` wrapper, which
+  the tree does not have. The hand mutants of two rounds had "unknown kind not looked up"
+  one line further on, and its survival was filed as equal in results.
+- **The tests that guard one line must not all skip at once (rev 142).** For each line of new
+  code, list the tests that fail when it is broken, and beside each test the conditions under
+  which it returns early or gives up (the user is root, a limit is too high to reach, a
+  platform, a missing tool). Where the conditions of all of them can hold together, that is
+  an environment in which the line has no test: name it, run the mutant there, and remove one
+  condition. A test that needs a limit sets the limit for itself (`setrlimit`) and does not
+  give up when the machine's is high. Missed on vlang/v#32926 (adversarial round 2,
+  2026-11-26): "a directory that fails to open is passed over" had two tests; one returns
+  early for uid 0, the other gives up after holding 100000 descriptors. As root with a limit
+  of 1048576, a container's usual state, both print a skip line and the file exits 0 with
+  `return walk_is_dir_by_name(item.path)` changed to `return false`. Each skip had been
+  named in its own row.
 - **An expected value does not come from the function the code uses (rev 137).** For each new or
   changed test, list the calls in its expected values and the calls in the code under test. A call
   on both lists makes the test compare the code with itself. Give the test another source: the
