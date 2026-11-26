@@ -18,6 +18,15 @@
 // alignment directive between `rep` and a string instruction "ends the prefix",
 // true only when it emits padding (`.p2align 0` emits none); no ledger row had it.
 //
+// An operating system or its C library is another tool too (rev 144): a comment that
+// names Windows, Linux, the system or glibc states what they do. And a claim's
+// subject can sit on another line of its comment block, so a new line is listed
+// when any line of its block (consecutive whole-line `//` comments) names a tool.
+// Missed on vlang/v PR 31848 (adversarial round 13, 2026-11-26): "without the dots
+// and spaces at the end of each name", said of GetFullPathNameW in the doc comment
+// of a new public function and beside a line that names Windows, is false for every
+// name but the last; both comments were listed by no detector.
+//
 // This is an enumerate-and-verify aid: a listed line is a candidate, not a bug.
 // In a V file it reads whole-line `//` comments only; a trailing comment after code
 // is not listed.
@@ -31,7 +40,15 @@ import os
 const tool_words = ['V', "V's", 'GCC', "GCC's", 'gcc', 'Clang', 'clang', 'TCC', 'tcc', 'MSVC',
 	'cgen', 'checker', "checker's", 'parser', "parser's", 'mirrors', 'mirror', 'matches']
 
-const tool_phrases = ['C backend', 'default V', 'as V ', 'like V ']
+// system_words are the systems of V's target list (vlib/v/pref/os_targets.v, as
+// written in prose) and the names of their C libraries and interfaces.
+const system_words = ['Windows', "Windows'", 'Linux', "Linux's", 'macOS', 'Darwin', 'iOS', 'FreeBSD',
+	'OpenBSD', 'NetBSD', 'DragonFly', 'BSD', 'BSDs', 'Solaris', 'QNX', 'Haiku', 'SerenityOS', 'Vinix',
+	'Emscripten', 'Android', 'Termux', 'WSL', 'POSIX', 'glibc', 'musl', 'Bionic', 'libc', 'kernel',
+	"kernel's"]
+
+const tool_phrases = ['C backend', 'default V', 'as V ', 'like V ', 'the system', 'The system',
+	'system call', 'Plan 9']
 
 fn comment_text(line string) ?string {
 	trimmed := line.trim_space()
@@ -71,11 +88,41 @@ fn names_another_tool(text string) bool {
 	}
 	for raw in text.split(' ') {
 		word := raw.trim('.,;:()[]`\'"!?')
-		if word in tool_words {
+		if word in tool_words || word in system_words {
 			return true
 		}
 	}
 	return false
+}
+
+// blocks_naming_a_tool gives the indexes of the comment lines whose block, a run of
+// consecutive whole-line `//` comments, has a line that names another tool.
+fn blocks_naming_a_tool(lines []string) map[int]bool {
+	mut out := map[int]bool{}
+	mut start := 0
+	for start < lines.len {
+		if _ := comment_text(lines[start]) {
+		} else {
+			start++
+			continue
+		}
+		mut end := start
+		mut names := false
+		for end < lines.len {
+			text := comment_text(lines[end]) or { break }
+			if names_another_tool(text) {
+				names = true
+			}
+			end++
+		}
+		if names {
+			for i in start .. end {
+				out[i] = true
+			}
+		}
+		start = end
+	}
+	return out
 }
 
 fn main() {
@@ -99,10 +146,11 @@ fn main() {
 		}
 	}
 	texts := claim_lines(lines, markdown)
+	in_naming_block := if markdown { map[int]bool{} } else { blocks_naming_a_tool(lines) }
 	mut found := 0
 	for i in 0 .. lines.len {
 		text := texts[i] or { continue }
-		if text in old || (!markdown && !names_another_tool(text)) {
+		if text in old || (!markdown && !names_another_tool(text) && !in_naming_block[i]) {
 			continue
 		}
 		println('  line ${i + 1}: ${text}')
