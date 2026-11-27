@@ -17,8 +17,9 @@ trap 'rm -rf "$work"' EXIT
 pad="$work/session/scratchpad"
 out_of_pad="$work/elsewhere"
 mkdir -p "$pad" "$out_of_pad"
-# `~/` in a command is the scratchpad folder.
-export HOME="$pad"
+# HOME is outside the scratchpad, except in the row about `~/` (HOOK_HOME).
+mkdir -p "$work/home"
+export HOME="$work/home"
 decl='# trace: one case
 # controls: a pass row and a fail row'
 # Files an Edit acts on. Every name says what the file holds.
@@ -41,7 +42,7 @@ json() {
 # expect <case> allow|deny <payload>
 expect() {
   local out got
-  out="$(printf '%s' "$3" | bash "$hook" 2>&1)"
+  out="$(printf '%s' "$3" | HOME="${HOOK_HOME:-$HOME}" bash "$hook" 2>&1)"
   if [[ "$out" == *'"permissionDecision":"deny"'* ]]; then got=deny; else got=allow; fi
   n=$((n + 1))
   if [ "$got" = "$2" ]; then
@@ -160,7 +161,7 @@ EOF")"
 expect heredoc_braced_var deny "$(run "S=$pad; cat > \${S}/h_var2.sh <<'EOF'
 echo var
 EOF")"
-expect heredoc_tilde deny "$(run "cat > ~/h_tilde.sh <<'EOF'
+HOOK_HOME="$pad" expect heredoc_tilde deny "$(run "cat > ~/h_tilde.sh <<'EOF'
 echo tilde
 EOF" "$out_of_pad")"
 expect heredoc_relative_after_cd deny "$(run "cd $pad && cat > h_rel.sh <<'EOF'

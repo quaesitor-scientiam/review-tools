@@ -29,11 +29,18 @@
 #
 # Reads the payload on stdin with no jq (git-bash has none), as require_code_review.sh does.
 # Prints a deny decision, or nothing; always exits 0.
+#
+# Every Write, Edit and Bash call runs this, and under Git Bash each started process costs tens
+# of milliseconds, so a call with nothing to check leaves before the first one: a checked file has
+# `scratchpad` in its path, which the payload then holds (as the path itself, the cwd, or a
+# `NAME=` value) unless it comes from `~/`; and it ends in a script extension the payload holds.
 set -uo pipefail
 
-payload="$(cat)"
-esc_ph="$(printf '\001')"
-nl="$(printf '\002')"
+IFS= read -r -d '' payload || true
+[[ $payload == *scratchpad* || ${HOME:-} == *scratchpad* ]] || exit 0
+[[ $payload =~ \.(sh|py|ps1|vsh|v)([^A-Za-z0-9_]|$) ]] || exit 0
+esc_ph=$'\001'
+nl=$'\002'
 # field NAME: the raw JSON text of the string field NAME (escapes kept).
 field() {
   printf '%s' "$payload" | sed -nE "s/.*\"$1\" *: *\"(([^\"\\\\]|\\\\.)*)\".*/\\1/p" | head -1
