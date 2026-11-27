@@ -9,3 +9,7 @@ Thumbs.db
 /tools/review_cost
 /detectors/.*.v3cc.*/
 /detectors/*.def
+# The trace hook's build (hooks/build_trace.vsh), and the binaries `v x.vsh` leaves beside a script.
+/bin/
+/hooks/build_trace
+/tests/require_trace/run

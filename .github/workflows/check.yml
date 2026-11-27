@@ -49,8 +49,6 @@ jobs:
           bash hooks/check_reference.sh . "$rev"
       - name: Cases of the rev check
         run: bash tests/check_pr_rev/run.sh
-      - name: Cases of the trace gate
-        run: bash tests/require_trace/run.sh
       - name: Build V
         run: |
           git init -q "$RUNNER_TEMP/v" && cd "$RUNNER_TEMP/v"
@@ -67,3 +65,8 @@ jobs:
           echo "$PWD" >> "$GITHUB_PATH"
       - name: Detector fixtures
         run: bash tests/run_fixtures.sh
+      - name: Build and test the trace hook
+        run: |
+          v hooks/build_trace.vsh
+          test -x bin/require_trace.exe
+          v tests/require_trace/run.vsh
