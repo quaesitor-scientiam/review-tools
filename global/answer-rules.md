@@ -27,3 +27,20 @@ each ended in `No change.`, and an adversarial review then confirmed twelve find
 8. **"Saved" means saved where it will be read.** Before saying a rule or note is saved, check
    that the location is one future sessions load. Rules meant for every project go in this
    file, not in one project's memory.
+
+### No assumed meanings: trace before running (standing rule, applies everywhere)
+
+A script written to run a probe, a test loop or a check is a claim about what each name in it
+holds. (Added 2026-11-27, after a probe's wrapper function read `"$@"` as its own arguments, not
+the script's, and all 28 rows failed for that reason alone; vlang/v discussion 29269.)
+
+1. **Trace one case by hand before running.** Pick one concrete input and write down what each
+   variable, argument and path holds at the line where it is used. Put it in the script as a
+   `# trace:` line (`//` in V).
+2. **Run the controls first.** Name one row that must pass and one that must fail, as a
+   `# controls:` line, and run those two before the rest. If either comes out wrong, the script
+   is wrong; fix it before reading any other row.
+3. **Checked in part** by the review-tools hook `hooks/require_trace.v`. It blocks a Write, an
+   Edit or a heredoc that leaves a `.sh`, `.py`, `.ps1`, `.v` or `.vsh` file in a session
+   scratchpad (outside a copied project tree) without both lines. It does not see other ways of
+   writing a file (`printf >`, `cp`, `sed -i`), nor whether the trace was done or the controls run.
