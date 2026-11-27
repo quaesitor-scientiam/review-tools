@@ -49,6 +49,8 @@ jobs:
           bash hooks/check_reference.sh . "$rev"
       - name: Cases of the rev check
         run: bash tests/check_pr_rev/run.sh
+      - name: Cases of the trace gate
+        run: bash tests/require_trace/run.sh
       - name: Build V
         run: |
           git init -q "$RUNNER_TEMP/v" && cd "$RUNNER_TEMP/v"

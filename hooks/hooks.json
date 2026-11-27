@@ -1,5 +1,5 @@
 {
-  "description": "review-tools commit gate: blocks git commit/push until /vreview has recorded a marker for the current diff and the HTML reference is in sync.",
+  "description": "review-tools gates: blocks git commit/push until /vreview has recorded a marker for the current diff and the HTML reference is in sync, and blocks writing a scratchpad script that does not declare its trace and controls.",
   "hooks": {
     "PreToolUse": [
       {
@@ -10,6 +10,17 @@
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}\"/hooks/require_code_review.sh",
             "timeout": 60,
             "statusMessage": "review-tools: checking commit gate..."
+          }
+        ]
+      },
+      {
+        "matcher": "^(Write|Edit|Bash)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}\"/hooks/require_trace.sh",
+            "timeout": 30,
+            "statusMessage": "review-tools: checking trace and controls..."
           }
         ]
       }
