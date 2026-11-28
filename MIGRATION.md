@@ -79,6 +79,8 @@ pointer.
 1. Remove the junction `S:\repo\vlang\.claude\skills\code-review` and the repo-local
    `vreview/` copy; remove `S:\repo\vlang\.claude\hooks\`.
 2. Remove the global `~/.claude/skills/{vreview,code-review,phase-r,codex-respond,
-   luna-respond,adversarial-review}` so the bare names stop shadowing the plugin.
+   luna-respond,adversarial-review}` so the bare names stop shadowing the plugin. To keep
+   typing a bare name such as `/vreview`, put a shortcut in its place that only hands off to
+   the plugin skill (see "Bare names" in [README.md](README.md)), never a copy of the rules.
 3. Point the project memory notes at the plugin; `S:\Code Review\` becomes a
    read-only mirror or is deleted.

@@ -22,6 +22,7 @@ pre-authorization for the Workflow tool. OpenCode has no Workflow tool and the
 skill defines no fallback, so a shim would fail or force the agent to improvise
 a different multi-agent run. The skill stays discoverable through the `skills`
 array, but under OpenCode only its Steps 1-2 (scope, lenses) are executable.
+No shim is shipped for `advreview` either: it only runs `adversarial-review`.
 
 `skills/code-review/` holds no `SKILL.md`, so it registers no skill — as in
 Claude Code, it is content the `vreview` skill reads (matrices, `run_detectors.sh`).
@@ -48,8 +49,8 @@ Point OpenCode at the skills directory. In your global
 
 `<clone>` is the checkout path (forward slashes on Windows). Skill IDs come
 from the directory names, so this exposes `vreview`, `phase-r`,
-`review-respond` and `adversarial-review` to the `skill` tool and to `@skill`
-mentions.
+`review-respond`, `design-brief`, `v-write`, `adversarial-review` and
+`advreview` to the `skill` tool and to `@skill` mentions.
 
 Install the slash commands (OpenCode discovers commands from files, not from
 the `skills` array). Either copy the shipped shims globally:
