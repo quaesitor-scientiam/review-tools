@@ -1,6 +1,11 @@
 // detect_platform_gated_tests — lists the test functions in a `_test.v` file
-// whose body opens with a `$if ... { return }` gate, so they run only on some
-// hosts (for example `$if !macos && !linux { return }`). A mutant killed only by
+// whose body opens with a `$if ... { return }` gate, or whose whole body is one
+// `$if ... { }` block with no `$else`, so they run only on some hosts (for example
+// `$if !macos && !linux { return }`, or `$if !windows { ...the test... }`). The
+// second shape was added in rev 145: graphify a7b43ac's cut-cache test had it, and
+// the detector did not list it (adversarial round of 2026-11-27). Not listed: a body
+// that is an `$if ... { } $else $if ... { }` chain with no final `$else`.
+// A mutant killed only by
 // such a test is killed only on those hosts (vreview Angle J, rev 101): its
 // discrimination row names the platforms, and needs an ungated test unless the
 // branch it covers is itself platform-specific.
@@ -52,28 +57,42 @@ fn main() {
 			continue
 		}
 		condition := lines[j].trim_space().all_after('\$if ').all_before('{').trim_space()
-		// Read the `$if` block up to its closing brace and look for a return.
+		// Read the `$if` block up to its closing brace; look for a return and an `$else`.
 		mut depth := 0
 		mut returns := false
+		mut has_else := false
 		mut k := j
 		for k < lines.len {
 			text := lines[k]
+			outer := depth == 1
 			depth += text.count('{') - text.count('}')
 			if text.trim_space().starts_with('return') {
 				returns = true
+			}
+			// only the gate's own `} $else`: one nested in its body still leaves the body gated
+			if outer && text.trim_space().starts_with('}') && text.contains('\$else') {
+				has_else = true
 			}
 			k++
 			if depth <= 0 {
 				break
 			}
 		}
+		// The first statement after the block.
+		for k < lines.len && lines[k].trim_space() == '' {
+			k++
+		}
+		whole_body := !has_else && k < lines.len && lines[k].trim_space() == '}'
 		if returns {
 			println('  line ${i}: ${name} returns early when `${condition}`')
+			found++
+		} else if whole_body {
+			println('  line ${i}: ${name} runs only when `${condition}` (its whole body is under the gate)')
 			found++
 		}
 	}
 	if found == 0 {
-		println('RESULT: no test function returns early under a `\$if` gate.')
+		println('RESULT: no test function returns early under a `\$if` gate or is wholly inside one.')
 		exit(0)
 	}
 	println('RESULT: ${found} test(s) run only on some hosts; a mutant killed only by them is a per-platform kill.')

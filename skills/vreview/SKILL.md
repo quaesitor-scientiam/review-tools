@@ -644,6 +644,15 @@ does. Standard and Lite keep the per-angle cap and normal N/A discretion.
    stated gap reads as "not checked" — these are different claims, and only
    one of them is true when a step was skipped.
 
+**Every hunk has its sentence (rev 145).** List the hunks of the diff (`git diff -U0 <base>`
+gives one `@@` line each) and beside each the sentence of the commit message, the PR body or the
+approved brief that it serves. A hunk with no such sentence is a finding until the author names
+its purpose: an edit applied twice by a replace that matched more than one place lands where no
+one reads it. In a large test file, a hunk outside the new tests is the usual place. Missed on
+graphify `a7b43ac` (adversarial round of 2026-11-27): adding `import strings` to the test file's
+header also added it to an unrelated test's fixture, whose `import x.json2` line was the same;
+the pass read the new tests and not the other hunks of that file.
+
 ### Phase 0 checklist — produce this before starting Phase 1
 
 **STOP. Do not start Phase 1 until every line below has a real answer.** A
@@ -658,6 +667,7 @@ recall-driven failure mode this skill has repeatedly found unreliable.
 - [ ] Base branch: <name> (gh pr view / git remote show)
 - [ ] Diff scope command: <command actually run>
 - [ ] Files classified: <N NEW, M MODIFIED>
+- [ ] Hunk inventory (rev 145): <one row per `@@` hunk: file, line, the commit message / PR / brief sentence it serves; a hunk with none is a finding>
 - [ ] Review mode: <Lite/Standard/High-risk/Regression — files/domains that justify it>
 - [ ] Full-file read: <files read in full, or "none required">
 - [ ] Per-file contract paragraphs: <count> (or "N/A — no file required a full read")
@@ -3342,11 +3352,33 @@ adds or changes:
   with `;`, so removing `.comma` from the separator list passed the whole test file.
 - **A kill by a platform-gated test is a per-platform kill (rev 101).** Run
   `detect_platform_gated_tests` (in the batch; it lists test functions whose body starts with
-  a `$if ... { return }` gate). When every failing line of a mutant is in a listed test, the
+  a `$if ... { return }` gate, and since rev 145 those whose whole body is one `$if ... { }`
+  block with no `$else`). When every failing line of a mutant is in a listed test, the
   discrimination row names the hosts the kill holds on, and the branch needs an ungated test
   unless the branch itself is platform-specific. Missed on vlang/v PR 31981 (adversarial
   round 7): resetting the pending flags at an embedded field, and accepting an embedded field
-  with a default, were pinned only by tests gated on macOS and Linux.
+  with a default, were pinned only by tests gated on macOS and Linux. Missed again on graphify
+  `a7b43ac` (adversarial round of 2026-11-27): the cut-cache test was wrapped whole in
+  `$if !windows { }`, a shape the detector did not list, and `f.close()` before `os.rm` matters
+  only on Windows, where removing an open file fails. A line whose effect differs by platform
+  needs its test on the platform where it differs, or the user's decision to leave it untested.
+- **An expected value the code under test builds is no oracle (rev 145).** For each new test,
+  read where its expected value comes from. When it is computed by a helper that calls the
+  function under test (or a function the change also rewrote), the comparison checks the code
+  against itself: compare with a literal, with the base revision's output, or with an
+  independent build of the value. Missed on graphify `a7b43ac` (adversarial round of
+  2026-11-27): the chunked graph.json was compared with `graph_to_json`, which the same commit
+  rewrote to call the chunked writer.
+- **A line whose purpose is a bound is broken like any other (rev 145).** When the change exists
+  to bound something the output does not show (memory held, chunk size, open handles, retries,
+  time), break each line that enforces the bound (drop the flush, the trim, the early close)
+  and run the tests. A survivor whose reason is "the output is the same" is the gap: the test
+  must measure the bound itself (the largest buffer, the bytes written before the last flush,
+  the count of calls). A run outside the tree (gdb, a heap trace) is a hand-forced state under
+  rev 142, not a test. Missed on graphify `a7b43ac` (adversarial round of 2026-11-27): deleting
+  every `o.spill(false)!` put the whole graph.json back in one buffer and every test passed;
+  the review's own planted bugs that only changed array sizes survived and were filed as
+  "covered by the gdb counts".
 - **Inputs on which the alternatives differ.** If the code chooses between two
   branches, results or targets, the fixture must make the wrong choice give a
   DIFFERENT observable result. graphify#149: the `$if` fallback test's two
