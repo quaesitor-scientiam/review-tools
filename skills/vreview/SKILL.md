@@ -1189,6 +1189,20 @@ then find where the new code re-establishes it. If you can't, that's a candidate
   base-vs-head row. Missed on vlang/v#31848 (adversarial round 1, 2026-11-08, 4 findings):
   moved-aside folders were never removed again, a failing nested root stopped the rest of the
   folder from being cleared, and `--verbose` stopped listing what was cleared around a root.
+- **A writer that replaces a file another run reads lists the process stopping (rev 146).** When a
+  change rewrites how a file is written (one write becomes a stream, a builder becomes chunks), list
+  the failures of the old and the new writer side by side, and put the process stopping at each step
+  among them: killed, out of memory, an abort of the garbage collector, a panic in the code that
+  encodes. A writer that empties the file before it has encoded everything widens that window to
+  the whole encoding; a reader that takes a cut line as a whole one then serves it. Compare with any
+  sibling that writes a temp file and renames it, and run the reader on a file cut short.
+  `detect_in_place_file_write` (in the batch) lists every function that creates a file with
+  `os.create` and renames it nowhere; give each the caller that renames it, or why a cut file is
+  harmless. Missed on graphify `a7b43ac` (adversarial round of 2026-11-27): `save_cache` stopped
+  joining its lines and writing them with one `os.write_file`, emptied the live cache with
+  `os.create` and wrote it line by line; a cache cut 40 bytes short loaded a file's entry with 18
+  of its 20 symbols. The failure rows of the pass named a failed create, a failed write and a failed
+  removal, and `save_graph` beside it already wrote a temp file.
 - **A name the diff removes is searched for in the whole tree (rev 139).** For each function,
   type, constant, option or file that the diff deletes or renames, run `git grep -nw <name>` on
   the tree, comments, docs and other file types included, and give each hit an answer. The
@@ -3217,6 +3231,14 @@ changes:
   it drops them from the last name only, and one dot from any other (`C:\r\mid \leaf` keeps its
   space). The detector listed neither, and round 12 had found another false sentence in the
   first one.
+  **A workflow's and a script's comments are claims too, and so are the garbage collector's
+  (rev 146).** The detector reads the `#` comments of `.yml`, `.yaml` and `.sh` targets, and the
+  batch selects those files; it lists Boehm, libgc and `GC` as another tool. A comment about what a
+  step counts or measures is probed in the tool's own source: the line that prints what is counted.
+  Missed on graphify `a7b43ac` (adversarial round of 2026-11-27): two comments in `ci.yml` said the
+  warnings the step counts are for a large block Boehm "refused"; Boehm prints that warning when it
+  gives out a block with blacklisted pages (`thirdparty/libgc/gc.c:13398`), and a refusal is the
+  abort at `gc.c:18672`, which the step does not count.
   **A fix to one sentence is a search for its twins (rev 144).** When a fix changes what one
   sentence, message or comment says (adds an exception, rewords an outcome), grep the docs, the
   help text, the output messages and the comments for the phrase it changed and for the outcome

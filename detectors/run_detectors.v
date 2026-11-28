@@ -16,11 +16,12 @@
 //
 //   file.v ...   target files (repo-relative or absolute; Windows separators and
 //                CRLF-polluted args are normalised). With no files, the target
-//                set is every changed .v and .md file (working tree vs HEAD, plus
-//                the branch diff vs the merge base with the default branch). A .md
-//                target goes to the detectors whose manifest globs name *.md (the
-//                claims detector, which lists a doc's new prose lines), with its
-//                base copy. A named file that does not exist is reported as
+//                set is every changed .v, .md, .yml, .yaml and .sh file (working
+//                tree vs HEAD, plus the branch diff vs the merge base with the
+//                default branch). A target that is not .v goes to the detectors
+//                whose manifest globs name its kind (the claims detector, which
+//                lists a doc's new prose lines and a workflow's or script's new
+//                `#` comments), with its base copy. A named file that does not exist is reported as
 //                skipped, and a target no detector takes says so.
 //   --base <rev> revision the base copies come from (default: the merge base of
 //                HEAD and the default branch: master, else main, else the branch
@@ -59,11 +60,12 @@ const manifest = {
 	'detect_unbounded_accum':                          '*.v'
 	'detect_scheduler_field_coverage':                 '*.v'
 	'detect_cache_key_environment':                    '*.v'
-	'detect_external_behavior_claims':                 '*.v *.md'
+	'detect_external_behavior_claims':                 '*.v *.md *.yml *.yaml *.sh'
 	'detect_platform_gated_tests':                     '*_test.v'
 	'detect_look_then_recursive_remove':               '*.v'
 	'detect_partial_dedup_return':                     '*.v'
 	'detect_numeric_text_compare':                     '*.v'
+	'detect_in_place_file_write':                      '*.v'
 	'detect_error_scope':                              'h2_*.v'
 	'detect_hpack_decode_scope':                       'h2_*.v'
 	'detect_swallowed_write':                          'h2_*.v'
@@ -446,9 +448,10 @@ fn make_private_dir(parent string) !string {
 }
 
 // is_target_kind reports whether no-arg mode selects a changed path: V sources,
-// and Markdown docs for the claims detector.
+// and Markdown docs, workflows and shell scripts for the claims detector.
 fn is_target_kind(path string) bool {
-	return path.ends_with('.v') || path.ends_with('.md')
+	return path.ends_with('.v') || path.ends_with('.md') || path.ends_with('.yml')
+		|| path.ends_with('.yaml') || path.ends_with('.sh')
 }
 
 // glob_match matches a basename against a pattern with at most one `*`.
