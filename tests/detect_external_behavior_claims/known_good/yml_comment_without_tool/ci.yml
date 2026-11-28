@@ -1,0 +1,5 @@
+jobs:
+  build:
+    steps:
+      # build the command line tool first
+      - run: v .

@@ -1,0 +1,5 @@
+jobs:
+  build:
+    steps:
+      # Boehm's warnings, such as a large block it refused, go to stderr
+      - run: v .

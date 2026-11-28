@@ -27,9 +27,14 @@
 // of a new public function and beside a line that names Windows, is false for every
 // name but the last; both comments were listed by no detector.
 //
+// A workflow or shell file (`.yml`, `.yaml`, `.sh`) has `#` comments, read like a V
+// file's `//` ones, and the garbage collector V links (Boehm, libgc) is another tool
+// too (rev 146). Missed on graphify a7b43ac (adversarial round of 2026-11-27): two
+// comments in ci.yml said the warnings it counts are for "a large block it refused";
+// Boehm prints that warning for a block it gives out, and no detector read the file.
+//
 // This is an enumerate-and-verify aid: a listed line is a candidate, not a bug.
-// In a V file it reads whole-line `//` comments only; a trailing comment after code
-// is not listed.
+// It reads whole-line comments only; a trailing comment after code is not listed.
 //
 // Usage: detect_external_behavior_claims <file> [base_copy_or_empty]
 // Exit: 1 = at least one new claim line listed; 0 = none; 2 = usage error.
@@ -38,7 +43,8 @@ module main
 import os
 
 const tool_words = ['V', "V's", 'GCC', "GCC's", 'gcc', 'Clang', 'clang', 'TCC', 'tcc', 'MSVC',
-	'cgen', 'checker', "checker's", 'parser', "parser's", 'mirrors', 'mirror', 'matches']
+	'cgen', 'checker', "checker's", 'parser', "parser's", 'mirrors', 'mirror', 'matches', 'Boehm',
+	"Boehm's", 'libgc', 'bdwgc', 'GC']
 
 // system_words are the systems of V's target list (vlib/v/pref/os_targets.v, as
 // written in prose) and the names of their C libraries and interfaces.
@@ -50,17 +56,31 @@ const system_words = ['Windows', "Windows'", 'Linux', "Linux's", 'macOS', 'Darwi
 const tool_phrases = ['C backend', 'default V', 'as V ', 'like V ', 'the system', 'The system',
 	'system call', 'Plan 9']
 
-fn comment_text(line string) ?string {
+// comment_text is the text of a whole-line comment: `//` in a V file, `#` (not a
+// `#!` line) in a workflow or shell file (`hash`).
+fn comment_text(line string, hash bool) ?string {
 	trimmed := line.trim_space()
+	if hash {
+		if trimmed.starts_with('#') && !trimmed.starts_with('#!') {
+			return trimmed.trim_left('#').trim_space()
+		}
+		return none
+	}
 	if trimmed.starts_with('//') {
 		return trimmed.trim_left('/').trim_space()
 	}
 	return none
 }
 
+// hash_comments reports whether `file` takes `#` comments: a workflow or shell file.
+fn hash_comments(file string) bool {
+	return file.ends_with('.yml') || file.ends_with('.yaml') || file.ends_with('.sh')
+}
+
 // claim_lines maps each line index to the text that can hold a claim: a whole-line
-// `//` comment in a V file, a prose line outside ``` fences in a Markdown file.
-fn claim_lines(lines []string, markdown bool) map[int]string {
+// comment in a V, workflow or shell file, a prose line outside ``` fences in a
+// Markdown file.
+fn claim_lines(lines []string, markdown bool, hash bool) map[int]string {
 	mut out := map[int]string{}
 	mut fenced := false
 	for i, line in lines {
@@ -73,7 +93,7 @@ fn claim_lines(lines []string, markdown bool) map[int]string {
 			if !fenced && trimmed != '' {
 				out[i] = trimmed
 			}
-		} else if text := comment_text(line) {
+		} else if text := comment_text(line, hash) {
 			out[i] = text
 		}
 	}
@@ -96,12 +116,12 @@ fn names_another_tool(text string) bool {
 }
 
 // blocks_naming_a_tool gives the indexes of the comment lines whose block, a run of
-// consecutive whole-line `//` comments, has a line that names another tool.
-fn blocks_naming_a_tool(lines []string) map[int]bool {
+// consecutive whole-line comments, has a line that names another tool.
+fn blocks_naming_a_tool(lines []string, hash bool) map[int]bool {
 	mut out := map[int]bool{}
 	mut start := 0
 	for start < lines.len {
-		if _ := comment_text(lines[start]) {
+		if _ := comment_text(lines[start], hash) {
 		} else {
 			start++
 			continue
@@ -109,7 +129,7 @@ fn blocks_naming_a_tool(lines []string) map[int]bool {
 		mut end := start
 		mut names := false
 		for end < lines.len {
-			text := comment_text(lines[end]) or { break }
+			text := comment_text(lines[end], hash) or { break }
 			if names_another_tool(text) {
 				names = true
 			}
@@ -138,15 +158,16 @@ fn main() {
 		exit(2)
 	}
 	markdown := file.ends_with('.md')
+	hash := hash_comments(file)
 	mut old := map[string]bool{}
 	if base != '' {
 		base_lines := os.read_lines(base) or { []string{} }
-		for _, text in claim_lines(base_lines, markdown) {
+		for _, text in claim_lines(base_lines, markdown, hash) {
 			old[text] = true
 		}
 	}
-	texts := claim_lines(lines, markdown)
-	in_naming_block := if markdown { map[int]bool{} } else { blocks_naming_a_tool(lines) }
+	texts := claim_lines(lines, markdown, hash)
+	in_naming_block := if markdown { map[int]bool{} } else { blocks_naming_a_tool(lines, hash) }
 	mut found := 0
 	for i in 0 .. lines.len {
 		text := texts[i] or { continue }
