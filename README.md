@@ -59,6 +59,36 @@ writing) run them before the script: `bash tests/install_answer_rules/run.sh`.
 | `/review-tools:adversarial-review` | A multi-agent pass that tries to break a finished change; run it only with the user's go-ahead |
 | `/review-tools:advreview [target]` | `/adversarial-review` run as cheaply as it can be: the fewest agents, each told to use graphify, and a token usage report at the end. It still asks before each round |
 
+### Bare names: `/vreview`, `/advreview` and the rest
+
+The plugin's skills are named `review-tools:<name>`. To type `/vreview` instead, add a shortcut
+skill of your own at `~/.claude/skills/<name>/SKILL.md` that holds no steps and only hands off
+to the plugin skill:
+
+```markdown
+---
+name: advreview
+description: >
+  Shortcut for /review-tools:advreview. This file holds no steps of its own; it only hands
+  off to the plugin skill so there is one source of truth. Usage: /advreview [target]
+disable-model-invocation: false
+---
+
+Do not work from this file. Immediately invoke the Skill tool with
+`skill: "review-tools:advreview"` and `args: "$ARGUMENTS"` (omit `args` when
+`$ARGUMENTS` is empty), then follow the loaded plugin skill exactly.
+
+If `review-tools:advreview` is not available, stop and tell the user the
+review-tools plugin is not loaded. Never fall back to an older copy of this skill.
+```
+
+For each other skill, replace every `advreview` in it with that skill's name (`vreview`,
+`adversarial-review`, `phase-r`, `review-respond`). The shortcuts are not shipped by the plugin
+and live on one machine only; a new machine needs its own. A running session can pick a new one
+up by itself; if it does not show, run `/reload-plugins` or start a new session. A shortcut must
+never hold a copy of a skill's rules: that was the old setup the plugin replaced (see
+[MIGRATION.md](MIGRATION.md)).
+
 `/luna-respond` was removed on 2026-11-14: it was a placeholder for a review service that was
 never connected.
 
