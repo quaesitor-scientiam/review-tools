@@ -10,7 +10,7 @@ WSL and macOS. Git is the sync mechanism; nothing is copied by hand.
 | --- | --- |
 | `skills/vreview/` | The `/vreview` review process (SKILL.md) |
 | `skills/code-review/` | `run_detectors.sh` (thin bash runner kept for WSL/macOS habit; same manifest), H2/QUIC conformance matrices, `rfc-texts/`. The shell detectors were retired once their V ports passed the same fixtures |
-| `skills/phase-r/`, `skills/review-respond/`, `skills/adversarial-review/` | Companion skills (see below) |
+| `skills/phase-r/`, `skills/review-respond/`, `skills/adversarial-review/`, `skills/advreview/` | Companion skills (see below) |
 | `skills/v-write/`, `skills/design-brief/` | Write-time skills, used before the code exists: the V write-time sheet (with the programs behind each fact in `vfacts/`) and the one-page design brief (see below) |
 | `detectors/` | The detectors, one V program each (`detect_*.v`, same `<file> <base_copy_or_empty>` contract), and `run_detectors.v`, the batch runner: computes targets and base revision with git, compiles the detectors a run needs once into a cache in the user's own cache folder (`~/.cache/review-tools-bin`), keyed by each detector's source and the compiler, dispatches by a basename manifest. No bash needed |
 | `probes/` | `vprobe.v`, the executed probes `/vreview` hard rule 4 requires: `matrix` (base build against head build per place, kind of object and account), `race` (several copies of a command at once), `mutate` (one test run per one-line mutant, generated for the functions that changed), `trace` (which inputs each caller of a function is tested with) and `siblings` (which sites of one situation lack a call another site gained). The file's header describes the spec |
@@ -57,6 +57,7 @@ writing) run them before the script: `bash tests/install_answer_rules/run.sh`.
 | `/review-tools:design-brief` | Before the first edit of a change that adds behaviour: one page with the request, the smallest change, what is out of scope, the decisions that are the user's, and where each list came from. No source file is edited until the user approves it |
 | `/review-tools:v-write` | Before writing or editing a `.v` file: twenty V language facts with a run program each, six structural defaults, and the loop for each function |
 | `/review-tools:adversarial-review` | A multi-agent pass that tries to break a finished change; run it only with the user's go-ahead |
+| `/review-tools:advreview [target]` | `/adversarial-review` run as cheaply as it can be: the fewest agents, each told to use graphify, and a token usage report at the end. It still asks before each round |
 
 `/luna-respond` was removed on 2026-11-14: it was a placeholder for a review service that was
 never connected.
