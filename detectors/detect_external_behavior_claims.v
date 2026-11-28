@@ -33,6 +33,11 @@
 // comments in ci.yml said the warnings it counts are for "a large block it refused";
 // Boehm prints that warning for a block it gives out, and no detector read the file.
 //
+// A listed line that says every, all, only, never or always is marked `[quantifier]`
+// (rev 147): its ledger row quotes the condition from the tool's source. Missed on
+// graphify gc-large-blocks (adversarial round 3, 2026-11-28): a ci.yml comment said
+// Boehm warns of "every" large block with blacklisted pages; it warns on one path only.
+//
 // This is an enumerate-and-verify aid: a listed line is a candidate, not a bug.
 // It reads whole-line comments only; a trailing comment after code is not listed.
 //
@@ -115,6 +120,21 @@ fn names_another_tool(text string) bool {
 	return false
 }
 
+// quantifiers are the words that make a line a claim about every case (rev 147): its
+// ledger row quotes the condition the word summarises.
+const quantifiers = ['every', 'Every', 'all', 'All', 'only', 'Only', 'never', 'Never', 'always',
+	'Always']
+
+// has_quantifier reports whether `text` has a quantifier as a whole word.
+fn has_quantifier(text string) bool {
+	for raw in text.split(' ') {
+		if raw.trim('.,;:()[]`\'"!?') in quantifiers {
+			return true
+		}
+	}
+	return false
+}
+
 // blocks_naming_a_tool gives the indexes of the comment lines whose block, a run of
 // consecutive whole-line comments, has a line that names another tool.
 fn blocks_naming_a_tool(lines []string, hash bool) map[int]bool {
@@ -174,7 +194,8 @@ fn main() {
 		if text in old || (!markdown && !names_another_tool(text) && !in_naming_block[i]) {
 			continue
 		}
-		println('  line ${i + 1}: ${text}')
+		mark := if has_quantifier(text) { ' [quantifier]' } else { '' }
+		println('  line ${i + 1}: ${text}${mark}')
 		found++
 	}
 	if found == 0 {
