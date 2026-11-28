@@ -226,6 +226,35 @@ memory, because memory does not sync.
    both". Each list ended in "No change". Run afterwards from these same rules, the rows
    reproduced ten of the twelve findings in minutes; one of them is a walk that lists through
    a planted junction with no race, which base did not do.
+6. **A pass reviews the branch, and a rule reaches back (rev 147).** Three rules bind every
+   pass, whatever angles it marks N/A; two of them were written under Angle K and were skipped
+   with it.
+   - **A rerun reviews the whole branch, not the fix.** A pass after a fix round fills its
+     tables for every commit of the branch against its base, not for the lines the fix changed.
+   - **A rule added on the branch is run backwards.** When a round adds or changes a rule (in
+     this skill, in a detector, or as a decision the user took), the next pass applies it to
+     every hunk of the branch, the commits from before the rule included, and the artifact names
+     the hunks it was checked on. A rule written for one case reaches every case it describes.
+   - **A sibling is evidence of consistency, not of correctness.** A parity row that copies a
+     sibling's way of doing a thing (a temp file and a rename, a lock, a retry) checks the
+     sibling against the same rule as the new code; where the sibling fails it, both are rows.
+
+   **Planted bugs that survive are kept in a file (rev 147).** Every planted bug that survives
+   (hand mutant, generated mutant, or a "per-platform kill" that one platform's tests do not
+   catch) gets a row in `$(git rev-parse --absolute-git-dir)/vreview_survivors.tsv`: the
+   commit, the file and line, the change, which tests ran, and where it survived. A row leaves
+   the file only for a test that now catches it (named, with the run) or a disposition the user
+   accepted (quoted). Every pass reads the file first; the artifact gives the count of open
+   rows, and a pass with an open row is not clean. A survivor filed with a reason ("covered by
+   the gdb counts", "caught in WSL") stays open until the reason is run or accepted.
+
+   Missed on graphify branch `gc-large-blocks` (adversarial round 3, 2026-11-28, 3 of 3
+   confirmed): rev 145's "a line whose purpose is a bound is broken like any other", written on
+   that branch from its own survivors (array sizes "covered by the gdb counts"), was applied to
+   the commit that prompted it and never to those survivors, so the `cap:` lines still had no
+   test. Rev 146's "the process stopping" rule was applied to the cache's own path, not to the
+   temp file the fix added, copied from a sibling (`save_graph`) that leaked its temp file the
+   same way. And two planted bugs that survived on Windows were filed as "caught in WSL".
 
 ## Plugin paths
 This skill ships in the `review-tools` plugin (git repo, installed at user scope).
@@ -668,6 +697,8 @@ recall-driven failure mode this skill has repeatedly found unreliable.
 - [ ] Diff scope command: <command actually run>
 - [ ] Files classified: <N NEW, M MODIFIED>
 - [ ] Hunk inventory (rev 145): <one row per `@@` hunk: file, line, the commit message / PR / brief sentence it serves; a hunk with none is a finding>
+- [ ] Rules run backwards (hard rule 6, rev 147): <each rule the branch's rounds added or changed: the hunks of every commit of the branch it was checked on, and the result> (or "no rule added on this branch")
+- [ ] Survivors file (hard rule 6, rev 147): <path, rows read, open rows with their reason; rows closed this pass with the test that now catches each> (or "no survivor on this branch", with the file's path)
 - [ ] Review mode: <Lite/Standard/High-risk/Regression — files/domains that justify it>
 - [ ] Full-file read: <files read in full, or "none required">
 - [ ] Per-file contract paragraphs: <count> (or "N/A — no file required a full read")
@@ -3239,6 +3270,13 @@ changes:
   warnings the step counts are for a large block Boehm "refused"; Boehm prints that warning when it
   gives out a block with blacklisted pages (`thirdparty/libgc/gc.c:13398`), and a refusal is the
   abort at `gc.c:18672`, which the step does not count.
+  **A quantifier quotes its condition (rev 147).** A new comment or doc line that says `every`,
+  `all`, `only`, `never` or `always` about another tool gets a ledger row that quotes, from the
+  tool's source or documentation, the condition the word summarises, next to the line; the
+  detector marks such lines `[quantifier]`. A summary of a reading is not a quote of it. Missed on
+  graphify `gc-large-blocks` (adversarial round 3, 2026-11-28): the fix for the line above said
+  Boehm "warns of every large block it gives out with blacklisted pages"; the source warns only
+  when `size_needed > BL_LIMIT && size_avail - size_needed > BL_LIMIT`, and the pass had read it.
   **A fix to one sentence is a search for its twins (rev 144).** When a fix changes what one
   sentence, message or comment says (adds an exception, rewords an outcome), grep the docs, the
   help text, the output messages and the comments for the phrase it changed and for the outcome
@@ -3384,6 +3422,14 @@ adds or changes:
   `$if !windows { }`, a shape the detector did not list, and `f.close()` before `os.rm` matters
   only on Windows, where removing an open file fails. A line whose effect differs by platform
   needs its test on the platform where it differs, or the user's decision to leave it untested.
+  **The test goes through the changed line (rev 147).** A test of a helper the line calls does
+  not cover the line: a branch that calls `close_and_remove` is covered on Windows by a test that
+  reaches that branch on Windows, not by a test of `close_and_remove`. A planted bug that only a
+  gated test catches is a survivor on the other platforms (hard rule 6's file), unless the branch
+  itself runs on one platform only. Missed on graphify `gc-large-blocks` (adversarial round 3,
+  2026-11-28): `save_cache`'s failed-write branch was tested only by a test gated off Windows; the
+  pass credited a Windows test of the helper, and filed the branch's Windows survivors as "caught
+  in WSL".
 - **An expected value the code under test builds is no oracle (rev 145).** For each new test,
   read where its expected value comes from. When it is computed by a helper that calls the
   function under test (or a function the change also rewrote), the comparison checks the code
@@ -4425,7 +4471,7 @@ For every diff that adds or widens a rejection:
   where `notl %[x]`, `cwtl`, `bswap`, `xchg` or `lods` changed the input, the advice compiled,
   the check accepted it, and GCC `-O2` returned the wrong value. Both rounds broke the existing
   Angle A rule "An empty result proves only what its producer can see".
-- **A rerun reviews the PR, not the fix.** Every `/vreview` pass after a fix round fills the
+- **A rerun reviews the PR, not the fix** (binds every pass since rev 147: hard rule 6). Every `/vreview` pass after a fix round fills the
   Angle K table, the Angle J mutation log and the variation table for the whole PR diff, not
   for the clauses the fix added. Keep the inventory in a file (one probe per vocabulary entry
   and shape, one mutant per added condition, each with its expected result) and re-run all of
@@ -4456,7 +4502,7 @@ For every diff that adds or widens a rejection:
   and the docs sentence saying so was taken as the disposition.
 - **Sweep the real corpus.** Run a new rejection over every real use in the tree
   (`git grep` the construct, one checker run per file) before reviewing it by hand.
-- **The sibling may share the bug.** Sibling parity (Phase 0 step 7) reported
+- **The sibling may share the bug** (binds every pass since rev 147: hard rule 6). Sibling parity (Phase 0 step 7) reported
   "matches" for the const case because the alias path had the same defect
   before the PR. A parity match with a sibling that has never been through
   this angle is evidence of consistency, not of correctness: run the
